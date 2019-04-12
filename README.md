@@ -1,2 +1,3 @@
-# OpenGL-Shader-Graph
-OpenGL Shader Graph
+# OpenGL Shader Graph
+
+![Screenshot](screenshot.jpg?raw=true)
