@@ -146,7 +146,6 @@ class GLFrame( glcanvas.GLCanvas ):
         data = cube.getVerticesFlat()
         self.vbo = vbo.VBO( np.array( data, 'f' ) )
         
-        self.FragmentShaderGraph.build()
         self.compileShaders()
         
         self.timer.Start(1000/60)    # 1 second interval
@@ -212,10 +211,10 @@ class GLFrame( glcanvas.GLCanvas ):
         self.SwapBuffers()
         
 class GraphWindow( wx.Panel ):
-    def __init__(self, *args, **kw):
-        super().__init__(*args, **kw)
+    def __init__(self, parent, graph):
+        super().__init__(parent, wx.ID_ANY)
         
-        self.graph = None
+        self.graph = graph
         self.nodeRects = {}
         self.pluglocation = {}
         self.left_down = False
@@ -244,17 +243,19 @@ class GraphWindow( wx.Panel ):
 
         #POPUP MENU
         self.popupMenu = wx.Menu()
-        self.popupMenu.Append( wx.ID_OPEN, '&Open\tCtrl+O', 'Open file' )
-        self.popupMenu.Append( wx.ID_EXIT, 'E&xit\tCtrl+Q', 'Exit Application' )
+        for idx, nc in enumerate(self.graph.node_classes):
+            pm = self.popupMenu.Append( idx, f'{nc[0]}', 'Add '+nc[0] )
+            self.Bind( wx.EVT_MENU, self.OnAddNode, pm )
         
-    def SetGraph(self, graph):
-        self.graph = graph
+    def OnAddNode(self, event):
+        node = self.graph.node_classes[event.GetId()][1]()
+        node.location = self.ScreenToClient(wx.GetMousePosition())
+        self.graph.nodes.append(node)
         
     def OnEraseBackground(self, event):
         pass
         
     def OnPaint(self, event):
-        #dc = wx.PaintDC(self)
         dc = wx.AutoBufferedPaintDC(self)
         dc.Clear()
         
@@ -454,9 +455,7 @@ class Window( wx.Frame ):
         glwindow = GLFrame(backPanel)
         
         # GRAPH PANEL
-        graphPanel = GraphWindow( backPanel, wx.ID_ANY )
-        #text = wx.StaticText( self.graphPanel, wx.ID_ANY, label='Boilerplate Code', pos=( 10, 10 ) )
-        graphPanel.SetGraph( glwindow.GetGraph() )
+        graphPanel = GraphWindow( backPanel, glwindow.GetGraph() )
         
         # LAYOUT
         gridSizer = wx.GridSizer(rows=1, cols=2, hgap=5, vgap=5)
@@ -466,7 +465,7 @@ class Window( wx.Frame ):
         backPanel.SetSizer(gridSizer)
         
         # MIN SIZE
-        self.SetSizeHints(600,300,-1,-1)
+        self.SetSizeHints(700,300,-1,-1)
         gridSizer.Fit(self)
         
         # SHOW

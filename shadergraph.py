@@ -39,7 +39,7 @@ class Value:
         return self.__str__()
         
 class ColorValue(Value):
-    def __init__(self, color=(1,1,1,1)):
+    def __init__(self, color=(.9,.9,.9,1)):
         super().__init__()
         self.color = color
         
@@ -170,29 +170,20 @@ class FragmentShaderNode(Node):
 class FragmentShaderGraph:
     def __init__(self):
         fsnode = FragmentShaderNode()
-        fsnode.location = [250, 20]
+        fsnode.location = [200, 20]
         self.nodes = [fsnode]
         self.requires_compilation = True
 
-    def build(self):
-        #solidcolor = SolidColorNode()
-        scalecolor = ScaleNode()
-        scalecolor.location = [50, 20]
-        unicolor = UniformRandomColorNode('RandomColor')
-        unicolor.location = [50, 100]
-        unitime = UniformRandomFloatNode('Time')
-        unitime.location = [50, 160]
-        #invcolor = InvertColorNode()
-        
-        #scalecolor.setValue('ScaleInColor', unicolor.getOutPlug('Uniform'))
-        #scalecolor.setValue('ScaleFloat', unitime.getOutPlug('Uniform'))
-        self.nodes[0].setValue('Color', scalecolor.getOutPlug('ScaleOutColor'))
-        
-        self.nodes.extend((scalecolor, unicolor, unitime))
+        self.node_classes = (
+            ('Solid Color', SolidColorNode),
+            ('Invert Color', InvertColorNode),
+            ('Scale Node', ScaleNode),
+            ('Random Color', UniformRandomColorNode),
+            ('Random Float', UniformRandomFloatNode)
+        )
         
 if __name__ == '__main__':
     g = FragmentShaderGraph()
-    g.build()
     code = ""
     globalcode = ""
     code, globalcode = g.nodes[0].generateCode('gl_FragColor', code, globalcode)
