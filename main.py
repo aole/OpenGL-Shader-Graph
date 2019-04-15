@@ -59,8 +59,6 @@ class GLFrame( glcanvas.GLCanvas ):
         self.Bind(wx.EVT_ERASE_BACKGROUND, self.processEraseBackgroundEvent)
         self.Bind(wx.EVT_SIZE, self.processSizeEvent)
         self.Bind(wx.EVT_PAINT, self.processPaintEvent)
-        #self.Bind(wx.EVT_IDLE, self.processPaintEvent)
-        self.Bind(wx.EVT_ERASE_BACKGROUND, self.processEraseBackground)
         self.Bind(wx.EVT_MOUSEWHEEL, self.processWheelEvent)
         self.Bind(wx.EVT_MOTION, self.processMotion)
         self.Bind(wx.EVT_LEFT_DOWN, self.processLeftDown)
@@ -90,9 +88,11 @@ class GLFrame( glcanvas.GLCanvas ):
     def processLeftDown( self, event ):
         self.last_pos = event.GetPosition()
         self.left_down = True
+        self.CaptureMouse()
         
     def processLeftUp( self, event ):
         self.left_down = False
+        self.ReleaseMouse()
         
     def processMotion( self, event ):
         if self.left_down:
@@ -289,6 +289,8 @@ class GraphWindow( wx.Panel ):
                 # print name
                 dc.DrawRoundedRectangle(locx, locy, txtwidth+4+15, txtheight+4, 3)
                 dc.DrawText(nodename, locx+2, locy+2)
+                if node.can_delete:
+                    dc.DrawText('X', locx+txtwidth+4+6, locy+2)
             
                 # print body
                 bodyh = plugcount * (txtheight+4)
@@ -296,7 +298,7 @@ class GraphWindow( wx.Panel ):
 
                 #if node not in self.nodeRects:
                 self.nodeRects[node] = [locx, locy, txtwidth+4+15, txtheight+4+bodyh]
-                    
+                
                 y = locy+txtheight+4
                 # out plugs
                 for key, plug in node.outplugs.items():
@@ -404,10 +406,6 @@ class GraphWindow( wx.Panel ):
             if pin in pin.parent.inplugs.values() and pout in pout.parent.outplugs.values():
                 pin.setValue(pout)
                 self.graph.requires_compilation = True
-            else:
-                print('no join:', pin in pin.parent.inplugs, pout in pout.parent.outplugs)
-        else:
-            print(self.selected_plug, self.selected_plug2)
             
         self.selected_plug = self.selected_plug2 = None
         self.Refresh()
@@ -419,13 +417,25 @@ class GraphWindow( wx.Panel ):
         if self.selected_plug:
             pass
         else:
-            for key, r in self.nodeRects.items():
+            for node, r in self.nodeRects.items():
                 if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
-                    self.selected_node = key
+                    # check if X is clicked
+                    if node.can_delete and x>r[0]+r[2]-10 and y<r[1]+10:
+                        self.removeNode(node)
+                        break
+                    else:
+                        self.selected_node = node
         
         self.left_down = True
         self.lastx, self.lasty = x, y
         self.Refresh()
+        
+    def removeNode(self, node):
+        self.graph.removeNode(node)
+        del self.nodeRects[node]
+        self.selected_node = None
+        self.selected_plug = self.selected_plug2 = None
+        self.graph.requires_compilation = True
         
 class Window( wx.Frame ):
     def __init__( self, *args, **kwargs ):

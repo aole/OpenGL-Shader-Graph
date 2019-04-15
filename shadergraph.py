@@ -12,7 +12,7 @@ class Plug:
         self.type = type
         self.variable = variable
         self.value = value
-        self.defaltValue = value
+        self.defaultValue = value
     
         if generate_variable:
             self.variable += str(Plug.count)
@@ -28,8 +28,9 @@ class Plug:
         
     def setValue(self, value):
         self.value = value
-        print(self,'->', value)
         
+    def setDefaultValue(self):
+        self.value = self.defaultValue
         
 class Value:
     def __init__(self):
@@ -61,6 +62,7 @@ class Node:
         self.name = name
         self.active = True
         self.location = [0,0]
+        self.can_delete = True
         
     def addInPlug(self, plug):
         self.inplugs[plug.name] = plug
@@ -120,15 +122,15 @@ class UniformNode(Node):
         return self.__str__()
         
 class UniformRandomFloatNode(UniformNode):
-    def __init__(self, name):
-        super().__init__(name, 'float', 1, UniformRandomFloatNode.getRandomFloat)
+    def __init__(self):
+        super().__init__('RandomFloat', 'float', 1, UniformRandomFloatNode.getRandomFloat)
         
     def getRandomFloat():
         return [random.random()]
         
 class UniformRandomColorNode(UniformNode):
-    def __init__(self, name):
-        super().__init__(name, 'vec4', 4, UniformRandomColorNode.getRandomColor)
+    def __init__(self):
+        super().__init__('RandomColor', 'vec4', 4, UniformRandomColorNode.getRandomColor)
         
     def getRandomColor():
         return (random.random(), random.random(), random.random(), 1)
@@ -170,6 +172,7 @@ class FragmentShaderNode(Node):
 class FragmentShaderGraph:
     def __init__(self):
         fsnode = FragmentShaderNode()
+        fsnode.can_delete = False
         fsnode.location = [200, 20]
         self.nodes = [fsnode]
         self.requires_compilation = True
@@ -182,6 +185,17 @@ class FragmentShaderGraph:
             ('Random Float', UniformRandomFloatNode)
         )
         
+    def removeNode(self, rnode):
+        self.nodes.remove(rnode)
+        for node in self.nodes:
+            for plug in node.inplugs.values():
+                try:
+                    if rnode==plug.value.parent:
+                        plug.setDefaultValue()
+                        print('setDefaultValue')
+                except:
+                    pass
+                    
 if __name__ == '__main__':
     g = FragmentShaderGraph()
     code = ""
