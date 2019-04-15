@@ -1,3 +1,3 @@
 # OpenGL Shader Graph
 
-![Screenshot](screenshot.jpg?raw=true)
+![Screenshot](screenshot.gif?raw=true)

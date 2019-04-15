@@ -12,6 +12,8 @@ from OpenGL.GL import shaders
 
 from readobj import Obj3D
 
+from shadergraph import uniforms, Plug, FragmentShaderGraph
+
 __author__ = 'Bhupendra Aole'
 __version__ = '0.1.0'
 
@@ -28,212 +30,6 @@ fragmentShader = """
         gl_FragColor = vec4( .9, .9, .9, 1 );
     }
     """
-
-uniforms = {}
-UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
-
-class Plug:
-    count = 1
-    def __init__(self, name, parent, type, variable, value, generate_variable=True, display=True):
-        self.name = name
-        self.parent = parent
-        self.type = type
-        self.variable = variable
-        self.value = value
-        self.defaltValue = value
-    
-        if generate_variable:
-            self.variable += str(Plug.count)
-            Plug.count += 1
-        
-        self.display = display
-        
-    def __str__(self):
-        if type(self.value)==Plug:
-            return f'{self.type} {self.variable} = {self.value.variable}'
-        else:
-            return f'{self.type} {self.variable} = {self.value}'
-        
-    def setValue(self, value):
-        self.value = value
-        
-        
-class Value:
-    def __init__(self):
-        self.parent = None
-        
-    def __repr__(self):
-        return self.__str__()
-        
-class ColorValue(Value):
-    def __init__(self, color=(1,1,1,1)):
-        super().__init__()
-        self.color = color
-        
-    def __str__(self):
-        return f'vec4({self.color[0]}, {self.color[1]}, {self.color[2]}, {self.color[3]})'
-    
-class FloatValue(Value):
-    def __init__(self, value=0.5):
-        super().__init__()
-        self.value = value
-        
-    def __str__(self):
-        return f'{self.value}'
-    
-class Node:
-    def __init__( self, name='Node' ):
-        self.inplugs = {}
-        self.outplugs = {}
-        self.codeGenerated = False
-        self.name = name
-        self.active = True
-        self.location = [0,0]
-        
-    def addInPlug(self, plug):
-        self.inplugs[plug.name] = plug
-        
-    def addOutPlug(self, plug):
-        self.outplugs[plug.name] = plug
-        
-    def setValue(self, name, plug):
-        self.inplugs[name].setValue(plug)
-        
-    def getInPlug(self, name):
-        return self.inplugs[name]
-        
-    def getOutPlug(self, name):
-        return self.outplugs[name]
-        
-    def __str__(self):
-        return str(type(self))
-        
-    def generateCode(self, name, code, globalcode):
-        if self.codeGenerated == True:
-            return code
-        
-        print('gencode', name, self)
-        for plugname, plug in self.inplugs.items():
-            print('\t', plugname, type(plug))
-            if isinstance(plug.value, Plug) and plug.value.parent!=self:
-                if isinstance(plug.value.parent, UniformNode):
-                    print('\tuniformfloat:', type(plug.value.value))
-                    globalcode += plug.value.value + ";\n"
-                else:
-                    out, gc = plug.value.parent.generateCode(plug.value.name, code, globalcode)
-                    print('adding code:', plug.value.parent.name,'.',plug.value.name,':',out)
-                    code = out
-                    globalcode = gc
-            
-            out = f'\t{plug};\n'
-            print('adding code2:', plugname, ':', out)
-            code += out
-        code += self.customCode(name)
-        
-        self.codeGenerated = True
-        
-        return code, globalcode
-        
-    def customCode(self, name):
-        return f'\t{self.outplugs[name]};\n'
-        
-class UniformNode(Node):
-    def __init__(self, name, type, count, function):
-        super().__init__(name)
-        
-        uniforms[name] = (UNIFORM_FUNCTION[count], function)
-        
-        self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, False)
-        self.addOutPlug(self.plug)
-        
-    def __str__(self):
-        return self.plug.value
-        
-    def __repr__(self):
-        return self.__str__()
-        
-class UniformRandomFloatNode(UniformNode):
-    def __init__(self, name):
-        super().__init__(name, 'float', 1, UniformRandomFloatNode.getRandomFloat)
-        
-    def getRandomFloat():
-        return [random.random()]
-        
-class UniformRandomColorNode(UniformNode):
-    def __init__(self, name):
-        super().__init__(name, 'vec4', 4, UniformRandomColorNode.getRandomColor)
-        
-    def getRandomColor():
-        return (random.random(), random.random(), random.random(), 1)
-        
-class ScaleNode(Node):
-    def __init__(self):
-        super().__init__('Scale')
-        
-        self.addInPlug(Plug('ScaleFloat', self, 'float', 'scale', FloatValue()))
-        self.addInPlug(Plug('ScaleInColor', self, 'vec4', 'color', ColorValue()))
-        self.addOutPlug(Plug('ScaleOutColor', self, 'vec4', 'color', ColorValue()))
-        
-    def customCode(self, name):
-        return f'\tvec4 {self.outplugs["ScaleOutColor"].variable} = {self.inplugs["ScaleInColor"].variable} * {self.inplugs["ScaleFloat"].variable};\n'
-        
-class InvertColorNode(Node):
-    def __init__(self):
-        super().__init__('Invert Color')
-        
-        self.inplugs['inColor'] = Plug('inColor', self, 'vec4', 'color', ColorValue())
-        self.outplugs['outColor'] = Plug('outColor', self, 'vec4', 'color', self.inplugs['inColor'])
-        
-    def customCode(self, name):
-        return f'\tvec4 {self.outplugs["outColor"].variable} = vec4(1-{self.inplugs["inColor"].variable}.r, 1-{self.inplugs["inColor"].variable}.g, 1-{self.inplugs["inColor"].variable}.b, {self.inplugs["inColor"].variable}.a);\n'
-        
-class SolidColorNode(Node):
-    def __init__(self):
-        super().__init__('Solid Color')
-        
-        self.outplugs['Color'] = Plug('Color', self, 'vec4', 'color', ColorValue((.1, .3, .7, 1)))
-        
-class FragmentShaderNode(Node):
-    def __init__(self):
-        super().__init__('Fragment Shader')
-        
-        self.inplugs['Color'] = Plug('Color', self, 'vec4', 'color', ColorValue())
-        self.outplugs['gl_FragColor'] = Plug('gl_FragColor', self, '', 'gl_FragColor', self.inplugs['Color'], False, False)
-        
-class FragmentShaderGraph:
-    def __init__(self):
-        fsnode = FragmentShaderNode()
-        fsnode.location = [150, 20]
-        #solidcolor = SolidColorNode()
-        scalecolor = ScaleNode()
-        scalecolor.location = [50, 20]
-        unicolor = UniformRandomColorNode('Random Color')
-        unicolor.location = [50, 100]
-        unitime = UniformRandomFloatNode('Time')
-        unitime.location = [50, 160]
-        #invcolor = InvertColorNode()
-        
-        #scalecolor.setValue('ScaleInColor', unicolor.getOutPlug('Uniform'))
-        #scalecolor.setValue('ScaleFloat', unitime.getOutPlug('Uniform'))
-        fsnode.setValue('Color', scalecolor.getOutPlug('ScaleOutColor'))
-        
-        self.nodes = [fsnode, scalecolor, unicolor, unitime]
-        
-    def compile(self):
-        code = ""
-        globalcode = ""
-        code, globalcode = self.nodes[0].generateCode('gl_FragColor', code, globalcode)
-        
-        fragmentShader = "#version 330\n\n"
-        fragmentShader += globalcode
-        fragmentShader += "\nvoid main() {\n"
-        fragmentShader += code
-        fragmentShader += "}"
-        
-        print('====================')
-        print(fragmentShader)
-        print('====================')
-        return shaders.compileShader( fragmentShader, GL_FRAGMENT_SHADER )
         
 class GLFrame( glcanvas.GLCanvas ):
     """A simple class for using OpenGL with wxPython."""
@@ -333,6 +129,9 @@ class GLFrame( glcanvas.GLCanvas ):
             self.OnInitGL()
             self.GLinitialized = True
 
+        if self.FragmentShaderGraph.requires_compilation:
+            self.compileShaders()
+            
         self.OnDraw()
         event.Skip()
 
@@ -343,18 +142,37 @@ class GLFrame( glcanvas.GLCanvas ):
         """Initialize OpenGL for use in the window."""
         glClearColor(1, 1, 1, 1)
 
-        VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
-        
-        FRAGMENT_SHADER = self.FragmentShaderGraph.compile()
-        #FRAGMENT_SHADER = shaders.compileShader( fragmentShader, GL_FRAGMENT_SHADER )
-        
-        self.shader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
-
         cube = Obj3D( 'cube.obj' )
         data = cube.getVerticesFlat()
         self.vbo = vbo.VBO( np.array( data, 'f' ) )
         
+        self.FragmentShaderGraph.build()
+        self.compileShaders()
+        
         self.timer.Start(1000/60)    # 1 second interval
+        
+    def compileShaders(self):
+        VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
+        
+        # Fragment Shader
+        code = ""
+        globalcode = ""
+        code, globalcode = self.FragmentShaderGraph.nodes[0].generateCode('gl_FragColor', code, globalcode)
+        
+        fragmentShader = "#version 330\n\n"
+        fragmentShader += globalcode
+        fragmentShader += "\nvoid main() {\n"
+        fragmentShader += code
+        fragmentShader += "}"
+        
+        print('====================')
+        print(fragmentShader)
+        print('====================')
+        FRAGMENT_SHADER = shaders.compileShader( fragmentShader, GL_FRAGMENT_SHADER )
+        
+        self.shader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
+
+        self.FragmentShaderGraph.requires_compilation = False
         
     def OnReshape( self, width, height ):
         """Reshape the OpenGL viewport based on the dimensions of the window."""
@@ -402,14 +220,22 @@ class GraphWindow( wx.Panel ):
         self.pluglocation = {}
         self.left_down = False
         self.selected_node = None
+        self.selected_plug = None
+        self.selected_plug2 = None
         self.lastx = self.lasty = 0
         
         self.BLACK_BRUSH = wx.Brush(wx.Colour(0,0,0))
-
+        self.RED_BRUSH = wx.Brush(wx.Colour(255,0,0))
+        self.BLACK_PEN = wx.Pen(wx.Colour(0,0,0))
+        self.RED_PEN = wx.Pen(wx.Colour(255,0,0))
+        
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        
         self.InitUI()
 
     def InitUI(self):
         self.Bind(wx.EVT_PAINT, self.OnPaint)
+        self.Bind(wx.EVT_ERASE_BACKGROUND, self.OnEraseBackground)
         self.Bind(wx.EVT_SIZE, self.OnSize)
         self.Bind(wx.EVT_RIGHT_DOWN, self.OnRightDown)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
@@ -424,8 +250,13 @@ class GraphWindow( wx.Panel ):
     def SetGraph(self, graph):
         self.graph = graph
         
-    def OnPaint(self, e):
-        dc = wx.PaintDC(self)
+    def OnEraseBackground(self, event):
+        pass
+        
+    def OnPaint(self, event):
+        #dc = wx.PaintDC(self)
+        dc = wx.AutoBufferedPaintDC(self)
+        dc.Clear()
         
         if self.graph:
             for node in self.graph.nodes:
@@ -437,6 +268,7 @@ class GraphWindow( wx.Panel ):
                     intensity = 0.5
                 
                 locx, locy = node.location
+                dc.SetPen(self.BLACK_PEN)
                 
                 # get max name length
                 nodename = node.name
@@ -473,9 +305,13 @@ class GraphWindow( wx.Panel ):
                     y += 2
                     name = str(key)
                     w, h = dc.GetTextExtent(name)
+                    if plug==self.selected_plug or plug==self.selected_plug2:
+                        dc.SetPen(self.RED_PEN)
+                    else:
+                        dc.SetPen(self.BLACK_PEN)
                     dc.DrawText(name, locx+2 + (txtwidth+11-w), y)
                     dc.DrawCircle(locx+2+txtwidth+6+10, y+h/2, 3)
-                    self.pluglocation[(node, plug)] = (locx+2+txtwidth+6+10, y+h/2)
+                    self.pluglocation[plug] = (locx+2+txtwidth+6+10, y+h/2)
                     y += txtheight
                     
                 # in plugs
@@ -486,25 +322,43 @@ class GraphWindow( wx.Panel ):
                     y += 2
                     name = str(key)
                     w, h = dc.GetTextExtent(name)
+                    if plug==self.selected_plug or plug==self.selected_plug2:
+                        dc.SetPen(self.RED_PEN)
+                    else:
+                        dc.SetPen(self.BLACK_PEN)
                     dc.DrawText(name, locx+6, y)
                     dc.DrawCircle(locx, y+h/2, 3)
-                    self.pluglocation[(node, plug)] = (locx, y+h/2)
+                    self.pluglocation[plug] = (locx, y+h/2)
                     y += txtheight
                     
             # draw connections
+            dc.SetPen(self.BLACK_PEN)
             for node in self.graph.nodes:
                 for plug in node.inplugs.values():
                     if not plug.display:
                         continue
                         
-                    x1, y1 = self.pluglocation[(node, plug)]
+                    x1, y1 = self.pluglocation[plug]
                     if isinstance(plug, Plug) and plug.value.parent and plug.value.parent!= node:
-                        x2, y2 = self.pluglocation[(plug.value.parent, plug.value)]
+                        x2, y2 = self.pluglocation[plug.value]
                         dc.DrawLine(x1, y1, x2, y2)
+                        
                         dc.SetBrush(self.BLACK_BRUSH)
+                        if plug == self.selected_plug or plug == self.selected_plug2:
+                            dc.SetBrush(self.RED_BRUSH)
                         dc.DrawCircle(x1, y1, 3)
+                        
+                        dc.SetBrush(self.BLACK_BRUSH)
+                        if plug.value == self.selected_plug or plug.value == self.selected_plug2:
+                            dc.SetBrush(self.RED_BRUSH)
                         dc.DrawCircle(x2, y2, 3)
                         
+            # hovered plug
+            if self.selected_plug:
+                x1, y1 = self.pluglocation[self.selected_plug]
+                x2, y2 = self.ScreenToClient(wx.GetMousePosition())
+                dc.DrawLine(x1, y1, x2, y2)
+                
     def OnSize(self, e):
         self.Refresh()
 
@@ -513,32 +367,64 @@ class GraphWindow( wx.Panel ):
 
     def OnMouseMotion(self, event):
         x, y = event.GetPosition()
+        
+        self.selected_plug2 = None
+        found = False
+        for plug, loc in self.pluglocation.items():
+            lx, ly = loc
+            if x>=lx-3 and x<=lx+3 and y>=ly-3 and y<=ly+3:
+                if self.left_down and self.selected_plug:
+                    self.selected_plug2 = plug
+                    found = True
+                elif not self.left_down:
+                    self.selected_plug = plug
+                    found = True
+                break
+                
+        if not found and not self.left_down:
+            self.selected_plug = None
+            
         if self.left_down:
             if self.selected_node:
                 self.selected_node.location[0] += x - self.lastx
                 self.selected_node.location[1] += y - self.lasty
-                self.Refresh()
-        else:
-            for key, loc in self.pluglocation.items():
-                node, plug = key
-                lx, ly = loc
-                if x>=lx-3 and x<=lx+3 and y>=ly-3 and y<=ly+3:
-                    print(node, '->', plug)
                     
+        self.Refresh()
         self.lastx, self.lasty = x, y
         
     def OnLeftUp(self, event):
         self.left_down = False
         
+        if self.selected_plug and self.selected_plug2:
+            pin = self.selected_plug
+            pout = self.selected_plug2
+            if pin not in pin.parent.inplugs.values():
+                pin, pout = pout, pin
+            if pin in pin.parent.inplugs.values() and pout in pout.parent.outplugs.values():
+                pin.setValue(pout)
+                self.graph.requires_compilation = True
+            else:
+                print('no join:', pin in pin.parent.inplugs, pout in pout.parent.outplugs)
+        else:
+            print(self.selected_plug, self.selected_plug2)
+            
+        self.selected_plug = self.selected_plug2 = None
+        self.Refresh()
+        
     def OnLeftDown(self, event):
         x, y = event.GetPosition()
         self.selected_node = None
-        for key, r in self.nodeRects.items():
-            if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
-                self.selected_node = key
+        
+        if self.selected_plug:
+            pass
+        else:
+            for key, r in self.nodeRects.items():
+                if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
+                    self.selected_node = key
         
         self.left_down = True
         self.lastx, self.lasty = x, y
+        self.Refresh()
         
 class Window( wx.Frame ):
     def __init__( self, *args, **kwargs ):
@@ -580,7 +466,7 @@ class Window( wx.Frame ):
         backPanel.SetSizer(gridSizer)
         
         # MIN SIZE
-        self.SetSizeHints(400,300,-1,-1)
+        self.SetSizeHints(600,300,-1,-1)
         gridSizer.Fit(self)
         
         # SHOW
