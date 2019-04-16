@@ -6,14 +6,15 @@ UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
 
 class Plug:
     count = 1
-    def __init__(self, name, parent, type, variable, value, generate_variable=True, display=True):
+    def __init__(self, name, parent, type, variable, value, inparam=True, generate_variable=True, display=True, inParam=True):
         self.name = name
         self.parent = parent
         self.type = type
         self.variable = variable
         self.value = value
         self.defaultValue = value
-    
+        self.inParam = inParam
+        
         if generate_variable:
             self.variable += str(Plug.count)
             Plug.count += 1
@@ -47,6 +48,12 @@ class ColorValue(Value):
     def __str__(self):
         return f'vec4({self.color[0]}, {self.color[1]}, {self.color[2]}, {self.color[3]})'
     
+    def GetColorInt(self):
+        return (self.color[0]*255, self.color[1]*255, self.color[2]*255, self.color[3]*255)
+    
+    def SetColorInt(self, r, g, b):
+        self.color = (r/255.0, g/255.0, b/255.0, 1.0)
+        
 class FloatValue(Value):
     def __init__(self, value=0.5):
         super().__init__()
@@ -65,9 +72,11 @@ class Node:
         self.can_delete = True
         
     def addInPlug(self, plug):
+        plug.inParam = True
         self.inplugs[plug.name] = plug
         
     def addOutPlug(self, plug):
+        plug.inParam = False
         self.outplugs[plug.name] = plug
         
     def setValue(self, name, plug):
@@ -112,7 +121,7 @@ class UniformNode(Node):
         
         uniforms[name] = (UNIFORM_FUNCTION[count], function)
         
-        self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, False)
+        self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, False, inParam=False)
         self.addOutPlug(self.plug)
         
     def __str__(self):
@@ -141,7 +150,7 @@ class ScaleNode(Node):
         
         self.addInPlug(Plug('ScaleFloat', self, 'float', 'scale', FloatValue()))
         self.addInPlug(Plug('ScaleInColor', self, 'vec4', 'color', ColorValue()))
-        self.addOutPlug(Plug('ScaleOutColor', self, 'vec4', 'color', ColorValue()))
+        self.addOutPlug(Plug('ScaleOutColor', self, 'vec4', 'color', ColorValue(), inParam=False))
         
     def customCode(self, name):
         return f'\tvec4 {self.outplugs["ScaleOutColor"].variable} = {self.inplugs["ScaleInColor"].variable} * {self.inplugs["ScaleFloat"].variable};\n'
@@ -151,7 +160,7 @@ class InvertColorNode(Node):
         super().__init__('Invert Color')
         
         self.inplugs['inColor'] = Plug('inColor', self, 'vec4', 'color', ColorValue())
-        self.outplugs['outColor'] = Plug('outColor', self, 'vec4', 'color', self.inplugs['inColor'])
+        self.outplugs['outColor'] = Plug('outColor', self, 'vec4', 'color', self.inplugs['inColor'], inParam=False)
         
     def customCode(self, name):
         return f'\tvec4 {self.outplugs["outColor"].variable} = vec4(1-{self.inplugs["inColor"].variable}.r, 1-{self.inplugs["inColor"].variable}.g, 1-{self.inplugs["inColor"].variable}.b, {self.inplugs["inColor"].variable}.a);\n'
@@ -160,14 +169,14 @@ class SolidColorNode(Node):
     def __init__(self):
         super().__init__('Solid Color')
         
-        self.outplugs['Color'] = Plug('Color', self, 'vec4', 'color', ColorValue((.1, .3, .7, 1)))
+        self.outplugs['Color'] = Plug('Color', self, 'vec4', 'color', ColorValue((.1, .3, .7, 1)), inParam=False)
         
 class FragmentShaderNode(Node):
     def __init__(self):
         super().__init__('Fragment Shader')
         
         self.inplugs['Color'] = Plug('Color', self, 'vec4', 'color', ColorValue())
-        self.outplugs['gl_FragColor'] = Plug('gl_FragColor', self, '', 'gl_FragColor', self.inplugs['Color'], False, False)
+        self.outplugs['gl_FragColor'] = Plug('gl_FragColor', self, '', 'gl_FragColor', self.inplugs['Color'], False, False, inParam=False)
         
 class FragmentShaderGraph:
     def __init__(self):

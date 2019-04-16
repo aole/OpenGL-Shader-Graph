@@ -13,6 +13,7 @@ from OpenGL.GL import shaders
 from readobj import Obj3D
 
 from shadergraph import uniforms, Plug, FragmentShaderGraph
+from shadergraph import ColorValue
 
 __author__ = 'Bhupendra Aole'
 __version__ = '0.1.0'
@@ -228,6 +229,9 @@ class GraphWindow( wx.Panel ):
         self.BLACK_PEN = wx.Pen(wx.Colour(0,0,0))
         self.RED_PEN = wx.Pen(wx.Colour(255,0,0))
         
+        self.PLUGVALUEGAP = 6
+        self.TXT4WIDTH, self.TXTHEIGHT = 0,0
+        
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         
         self.InitUI()
@@ -258,6 +262,7 @@ class GraphWindow( wx.Panel ):
     def OnPaint(self, event):
         dc = wx.AutoBufferedPaintDC(self)
         dc.Clear()
+        self.TXT4WIDTH, self.TXTHEIGHT = dc.GetTextExtent('ABCD')
         
         if self.graph:
             for node in self.graph.nodes:
@@ -308,11 +313,21 @@ class GraphWindow( wx.Panel ):
                     y += 2
                     name = str(key)
                     w, h = dc.GetTextExtent(name)
+                    
+                    # draw plug inputs
+                    if isinstance(plug.value, ColorValue):
+                        COLOR_BRUSH = wx.Brush(wx.Colour(*plug.value.GetColorInt()))
+                        dc.SetBrush(COLOR_BRUSH)
+                        dc.DrawRoundedRectangle(locx+2+txtwidth+10-self.TXT4WIDTH, y, self.TXT4WIDTH, self.TXTHEIGHT, 3)
+                        dc.SetBrush(wx.NullBrush)
+                    else:
+                        dc.DrawText(name, locx+2 + (txtwidth+11-w), y)
+                    
                     if plug==self.selected_plug or plug==self.selected_plug2:
                         dc.SetPen(self.RED_PEN)
                     else:
                         dc.SetPen(self.BLACK_PEN)
-                    dc.DrawText(name, locx+2 + (txtwidth+11-w), y)
+                        
                     dc.DrawCircle(locx+2+txtwidth+6+10, y+h/2, 3)
                     self.pluglocation[plug] = (locx+2+txtwidth+6+10, y+h/2)
                     y += txtheight
@@ -325,11 +340,22 @@ class GraphWindow( wx.Panel ):
                     y += 2
                     name = str(key)
                     w, h = dc.GetTextExtent(name)
+                    
+                    # draw plug inputs
+                    if isinstance(plug.value, ColorValue):
+                        COLOR_BRUSH = wx.Brush(wx.Colour(*plug.value.GetColorInt()))
+                        dc.SetBrush(COLOR_BRUSH)
+                        dc.DrawRoundedRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH, self.TXTHEIGHT, 3)
+                        dc.SetBrush(wx.NullBrush)
+                    else:
+                        dc.DrawText(name, locx+self.PLUGVALUEGAP, y)
+                    
+                    # draw plug circle
                     if plug==self.selected_plug or plug==self.selected_plug2:
                         dc.SetPen(self.RED_PEN)
                     else:
                         dc.SetPen(self.BLACK_PEN)
-                    dc.DrawText(name, locx+6, y)
+                   
                     dc.DrawCircle(locx, y+h/2, 3)
                     self.pluglocation[plug] = (locx, y+h/2)
                     y += txtheight
@@ -371,12 +397,18 @@ class GraphWindow( wx.Panel ):
     def OnMouseMotion(self, event):
         x, y = event.GetPosition()
         
+        if not self.selected_plug:
+            self.selected_node = None
+            for node, r in self.nodeRects.items():
+                if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
+                    self.selected_node = node
+                    
         self.selected_plug2 = None
         found = False
         for plug, loc in self.pluglocation.items():
             lx, ly = loc
             if x>=lx-3 and x<=lx+3 and y>=ly-3 and y<=ly+3:
-                if self.left_down and self.selected_plug:
+                if self.left_down and self.selected_plug and self.selected_plug != plug:
                     self.selected_plug2 = plug
                     found = True
                 elif not self.left_down:
@@ -397,6 +429,7 @@ class GraphWindow( wx.Panel ):
         
     def OnLeftUp(self, event):
         self.left_down = False
+        x, y = event.GetPosition()
         
         if self.selected_plug and self.selected_plug2:
             pin = self.selected_plug
@@ -407,16 +440,41 @@ class GraphWindow( wx.Panel ):
                 pin.setValue(pout)
                 self.graph.requires_compilation = True
             
-        self.selected_plug = self.selected_plug2 = None
+        # activate plug input
+        if not self.selected_plug and self.selected_node:
+            for plug, loc in self.pluglocation.items():
+                if plug.parent != self.selected_node:
+                    continue
+                lx, ly = loc
+                if plug.inParam and x>=lx+self.PLUGVALUEGAP and x<=lx+self.PLUGVALUEGAP+self.TXT4WIDTH and y>=ly-self.TXTHEIGHT/2 and y<=ly+self.TXTHEIGHT/2:
+                    if isinstance(plug.value, ColorValue):
+                        data = wx.ColourData()
+                        data.SetColour(wx.Colour(*plug.value.GetColorInt()))
+                        dialog = wx.ColourDialog(self, data)
+                        if dialog.ShowModal() == wx.ID_OK:
+                            retColor = dialog.GetColourData().GetColour()
+                            plug.value.SetColorInt(*retColor.Get(False))
+                            self.graph.requires_compilation = True
+                    break
+                elif not plug.inParam and x>lx-(self.PLUGVALUEGAP+self.TXT4WIDTH) and x<lx-self.PLUGVALUEGAP and y>=ly-self.TXTHEIGHT/2 and y<=ly+self.TXTHEIGHT/2:
+                    if isinstance(plug.value, ColorValue):
+                        data = wx.ColourData()
+                        data.SetColour(wx.Colour(*plug.value.GetColorInt()))
+                        dialog = wx.ColourDialog(self, data)
+                        if dialog.ShowModal() == wx.ID_OK:
+                            retColor = dialog.GetColourData().GetColour()
+                            plug.value.SetColorInt(*retColor.Get(False))
+                            self.graph.requires_compilation = True
+                    break
+                    
+        self.selected_plug = self.selected_plug2 = self.selected_node = None
         self.Refresh()
         
     def OnLeftDown(self, event):
         x, y = event.GetPosition()
-        self.selected_node = None
         
-        if self.selected_plug:
-            pass
-        else:
+        self.selected_node = None
+        if not self.selected_plug:
             for node, r in self.nodeRects.items():
                 if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
                     # check if X is clicked
