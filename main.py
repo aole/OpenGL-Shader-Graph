@@ -20,18 +20,26 @@ __version__ = '0.1.0'
 
 vertexShader = """
     #version 120
+    
     void main() {
         gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
     }
     """
 
-fragmentShader = """
-    #version 120
+fragmentBGShader = """
+    #version 330
+    
     void main() {
-        gl_FragColor = vec4( .9, .9, .9, 1 );
+        vec2 d = gl_FragCoord.xy/30;
+        if(mod(int(d.x),2)==mod(int(d.y),2)) {
+            gl_FragColor = vec4( .7, .7, .7, 1 );
+        }
+        else {
+            gl_FragColor = vec4( .3, .3, .3, 1 );
+        }
     }
     """
-        
+
 class GLFrame( glcanvas.GLCanvas ):
     """A simple class for using OpenGL with wxPython."""
     
@@ -117,8 +125,8 @@ class GLFrame( glcanvas.GLCanvas ):
         self.Show()
         #self.SetCurrent( self.context )
 
-        size = self.GetGLExtents()
-        self.OnReshape( size.width, size.height )
+        width, height = self.GetGLExtents()
+        self.OnReshape( width, height )
         #self.Refresh( False )
         event.Skip()
 
@@ -143,14 +151,26 @@ class GLFrame( glcanvas.GLCanvas ):
         """Initialize OpenGL for use in the window."""
         glClearColor(1, 1, 1, 1)
 
+        width, height = self.GetGLExtents()
+        bgdata = [[width,height,0.],  [0.,height,0.],  [width,0.,0.],  [0.,0.,0.]]
+        self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
+        
+        self.compileBGShaders()
+        
         cube = Obj3D( 'cube.obj' )
-        data = cube.getVerticesFlat()
-        self.vbo = vbo.VBO( np.array( data, 'f' ) )
+        fgdata = cube.getVerticesFlat()
+        self.fgvbo = vbo.VBO( np.array( fgdata, 'f' ) )
         
         self.compileShaders()
         
         self.timer.Start(1000/60)    # 1 second interval
         
+    def compileBGShaders(self):
+        VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
+        FRAGMENT_SHADER = shaders.compileShader( fragmentBGShader, GL_FRAGMENT_SHADER )
+        
+        self.bgshader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
+    
     def compileShaders(self):
         VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
         
@@ -178,32 +198,63 @@ class GLFrame( glcanvas.GLCanvas ):
         """Reshape the OpenGL viewport based on the dimensions of the window."""
         glViewport( 0, 0, width, height )
         
+        if self.GLinitialized:
+            bgdata = [[width,height,0.],  [0.,height,0.],  [width,0.,0.],  [0.,0.,0.]]
+            if self.bgvbo:
+                self.bgvbo.delete()
+            self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
+        
+    def OnDraw( self ):
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
+        
+        width, height = self.GetGLExtents()
+        
+        # draw background
         glMatrixMode( GL_PROJECTION )
         glLoadIdentity()
-        # glOrtho( -0.5, 0.5, -0.5, 0.5, -1, 1 )
+        glOrtho( 0,width, 0, height, -1, 1 )
+        
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity()
+        
+        glPushMatrix()
+        
+        shaders.glUseProgram( self.bgshader )
+        
+        self.bgvbo.bind()
+        glEnableClientState( GL_VERTEX_ARRAY );
+        glVertexPointerf( self.bgvbo )
+        
+        glDrawArrays( GL_TRIANGLE_STRIP, 0, len( self.bgvbo ) )
+        
+        self.bgvbo.unbind()
+        glDisableClientState( GL_VERTEX_ARRAY );
+        
+        glPopMatrix()
+        
+        # draw foreground
+        glMatrixMode( GL_PROJECTION )
+        glLoadIdentity()
         gluPerspective( 45.0, width/height, self.near_plane, self.far_plane )
 
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
 
-    def OnDraw( self ):
         glPushMatrix()
         glTranslate( self.world_pos[0], self.world_pos[1], self.world_pos[2] )
         glRotated( self.world_rot[1], 0, 1, 0 )
         glRotated( self.world_rot[0], 1, 0, 0 )
         
-        glClear( GL_COLOR_BUFFER_BIT )
-        
         shaders.glUseProgram( self.shader )
-        self.vbo.bind()
+        self.fgvbo.bind()
         glEnableClientState( GL_VERTEX_ARRAY );
-        glVertexPointerf( self.vbo )
+        glVertexPointerf( self.fgvbo )
         
         for uname, ufuncs in uniforms.items():
             ufuncs[0]( glGetUniformLocation(self.shader, uname), *ufuncs[1]() )
         
-        glDrawArrays( GL_TRIANGLES, 0, len( self.vbo ) )
-        self.vbo.unbind()
+        glDrawArrays( GL_TRIANGLES, 0, len( self.fgvbo ) )
+        self.fgvbo.unbind()
         glDisableClientState( GL_VERTEX_ARRAY );
         shaders.glUseProgram( 0 )
         
@@ -262,6 +313,14 @@ class GraphWindow( wx.Panel ):
     def OnPaint(self, event):
         dc = wx.AutoBufferedPaintDC(self)
         dc.Clear()
+        
+        # paint background
+        #w, h = dc.GetSize().Get()
+        #dc.SetPen(wx.NullPen)
+        #COLOR_BRUSH = wx.Brush(wx.Colour(220, 225, 240))
+        #dc.SetBrush(COLOR_BRUSH)
+        #dc.DrawRectangle(0, 0, w, h)
+        
         self.TXT4WIDTH, self.TXTHEIGHT = dc.GetTextExtent('ABCD')
         
         if self.graph:
@@ -275,6 +334,7 @@ class GraphWindow( wx.Panel ):
                 
                 locx, locy = node.location
                 dc.SetPen(self.BLACK_PEN)
+                dc.SetBrush(wx.NullBrush)
                 
                 # get max name length
                 nodename = node.name
