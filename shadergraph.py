@@ -63,7 +63,16 @@ class FloatValue(Value):
         
     def __str__(self):
         return f'{self.value}'
-    
+        
+    def GetFloat(self):
+        return str(round(self.value, 3))
+        
+    def SetFloat(self, value):
+        try:
+            self.value = float(value)
+        except:
+            pass
+        
 class Node:
     def __init__( self, name='Node' ):
         self.inplugs = {}
@@ -252,7 +261,7 @@ class FragmentShaderGraph:
     def __init__(self):
         fsnode = FragmentShaderNode()
         fsnode.can_delete = False
-        fsnode.location = [300, 20]
+        fsnode.location = [350, 20]
         self.nodes = [fsnode]
         self.requires_compilation = True
 

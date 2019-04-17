@@ -13,7 +13,7 @@ from OpenGL.GL import shaders
 from readobj import Obj3D
 
 from shadergraph import NodeFactory, FragmentShaderGraph
-from shadergraph import uniforms, Plug, ColorValue
+from shadergraph import uniforms, Plug, ColorValue, FloatValue
 
 REALTIME = True
 
@@ -52,7 +52,7 @@ class GLFrame( glcanvas.GLCanvas ):
     world_pos = (0, 0, -6)
     world_rot = (0, 0, 0)
     
-    def __init__(self, parent):
+    def __init__(self, parent, graph):
         self.GLinitialized = False
         attribList = (glcanvas.WX_GL_RGBA, # RGBA
                       glcanvas.WX_GL_DOUBLEBUFFER, # Double Buffered
@@ -80,7 +80,7 @@ class GLFrame( glcanvas.GLCanvas ):
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.processPaintEvent)
 
-        self.FragmentShaderGraph = FragmentShaderGraph()
+        self.FragmentShaderGraph = graph #FragmentShaderGraph()
     
     def GetGraph(self):
         return self.FragmentShaderGraph
@@ -390,19 +390,21 @@ class GraphWindow( wx.Panel ):
                     name = str(key)
                     w, h = dc.GetTextExtent(name)
                     
+                    dc.SetPen(self.BLACK_PEN)
                     # draw plug inputs
                     if isinstance(plug.value, ColorValue):
                         COLOR_BRUSH = wx.Brush(wx.Colour(*plug.value.GetColorInt()))
                         dc.SetBrush(COLOR_BRUSH)
                         dc.DrawRoundedRectangle(locx+2+txtwidth+10-self.TXT4WIDTH, y, self.TXT4WIDTH, self.TXTHEIGHT, 3)
                         dc.SetBrush(wx.NullBrush)
+                    elif isinstance(plug.value, FloatValue):
+                        dc.DrawRectangle(locx+2+txtwidth+10-self.TXT4WIDTH, y, self.TXT4WIDTH, self.TXTHEIGHT)
+                        dc.DrawText(plug.value.GetFloat(), locx+2+txtwidth+13-self.TXT4WIDTH, y)
                     else:
                         dc.DrawText(name, locx+2 + (txtwidth+11-w), y)
                     
                     if plug==self.selected_plug or plug==self.selected_plug2:
                         dc.SetPen(self.RED_PEN)
-                    else:
-                        dc.SetPen(self.BLACK_PEN)
                         
                     dc.DrawCircle(locx+2+txtwidth+6+10, y+h/2, 3)
                     self.pluglocation[plug] = (locx+2+txtwidth+6+10, y+h/2)
@@ -424,6 +426,9 @@ class GraphWindow( wx.Panel ):
                         dc.SetBrush(COLOR_BRUSH)
                         dc.DrawRoundedRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH, self.TXTHEIGHT, 3)
                         dc.SetBrush(wx.NullBrush)
+                    elif isinstance(plug.value, FloatValue):
+                        dc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH, self.TXTHEIGHT)
+                        dc.DrawText(plug.value.GetFloat(), locx+self.PLUGVALUEGAP+3, y)
                     else:
                         dc.DrawText(name, locx+self.PLUGVALUEGAP, y)
                     
@@ -531,6 +536,12 @@ class GraphWindow( wx.Panel ):
                             retColor = dialog.GetColourData().GetColour()
                             plug.value.SetColorInt(*retColor.Get(False))
                             self.graph.requires_compilation = True
+                    elif isinstance(plug.value, FloatValue):
+                        dialog = wx.TextEntryDialog(self, 'Enter Value', caption='Enter Value',value=plug.value.GetFloat())
+                        if dialog.ShowModal() == wx.ID_OK:
+                            plug.value.SetFloat(dialog.GetValue())
+                            self.graph.requires_compilation = True
+                            
                     break
                 elif not plug.inParam and x>lx-(self.PLUGVALUEGAP+self.TXT4WIDTH) and x<lx-self.PLUGVALUEGAP and y>=ly-self.TXTHEIGHT/2 and y<=ly+self.TXTHEIGHT/2:
                     if isinstance(plug.value, ColorValue):
@@ -541,6 +552,12 @@ class GraphWindow( wx.Panel ):
                             retColor = dialog.GetColourData().GetColour()
                             plug.value.SetColorInt(*retColor.Get(False))
                             self.graph.requires_compilation = True
+                    elif isinstance(plug.value, FloatValue):
+                        dialog = wx.TextEntryDialog(self, 'Enter Value', caption='Enter Value',value=plug.value.GetFloat())
+                        if dialog.ShowModal() == wx.ID_OK:
+                            plug.value.SetFloat(dialog.GetValue())
+                            self.graph.requires_compilation = True
+                            
                     break
                     
         self.selected_plug = self.selected_plug2 = self.selected_node = None
@@ -574,6 +591,9 @@ class GraphWindow( wx.Panel ):
 class Window( wx.Frame ):
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
+        
+        self.graph = FragmentShaderGraph()
+        
         self.initUI()
     
     def initUI( self ):
@@ -596,7 +616,7 @@ class Window( wx.Frame ):
         backPanel = wx.Panel(self, wx.ID_ANY)
         
         # GL WINDOW
-        glwindow = GLFrame(backPanel)
+        glwindow = GLFrame(backPanel, self.graph)
         
         # GRAPH PANEL
         graphPanel = GraphWindow( backPanel, glwindow.GetGraph() )
