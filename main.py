@@ -153,6 +153,11 @@ class GLFrame( glcanvas.GLCanvas ):
         """Initialize OpenGL for use in the window."""
         glClearColor(1, 1, 1, 1)
 
+        # setup transparency
+        glDisable(GL_CULL_FACE)
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        
         width, height = self.GetGLExtents()
         bgdata = [[width,height,0.],  [0.,height,0.],  [width,0.,0.],  [0.,0.,0.]]
         self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
@@ -210,7 +215,7 @@ class GLFrame( glcanvas.GLCanvas ):
         
     def OnDraw( self ):
         glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
-        
+
         width, height = self.GetGLExtents()
         
         # draw background
@@ -326,17 +331,10 @@ class GraphWindow( wx.Panel ):
         #dc.SetBrush(COLOR_BRUSH)
         #dc.DrawRectangle(0, 0, w, h)
         
-        self.TXT4WIDTH, self.TXTHEIGHT = dc.GetTextExtent('ABCD')
+        self.TXT4WIDTH, self.TXTHEIGHT = dc.GetTextExtent('TEXT')
         
         if self.graph:
             for node in self.graph.nodes:
-                if node.active:
-                    # draw with full intensity
-                    intensity = 1
-                else:
-                    # draw with half intensity
-                    intensity = 0.5
-                
                 locx, locy = node.location
                 dc.SetPen(self.BLACK_PEN)
                 dc.SetBrush(wx.NullBrush)

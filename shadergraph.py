@@ -93,9 +93,7 @@ class Node:
         return str(type(self))
         
     def generateCode(self, name, code, globalcode):
-        print('gencode', name, self)
         for plugname, plug in self.inplugs.items():
-            print('\t', plugname, type(plug))
             if isinstance(plug.value, Plug) and plug.value.parent!=self:
                 if isinstance(plug.value.parent, UniformNode):
                     if not plug.value.declared:
@@ -108,12 +106,12 @@ class Node:
             
             out = f'\t{plug};\n'
             code += out
-        code += self.customCode(name)
+        code += '\t'+self.customCode(name).strip()+';\n'
         
         return code, globalcode
         
     def customCode(self, name):
-        return f'\t{self.outplugs[name]};\n'
+        return f'{self.outplugs[name]}'
         
 class UniformNode(Node):
     varcount = 1
@@ -157,7 +155,7 @@ class ScaleNode(Node):
         self.addOutPlug(Plug('ScaleOutColor', self, 'vec4', 'color', ColorValue(), inParam=False))
         
     def customCode(self, name):
-        return f'\tvec4 {self.outplugs["ScaleOutColor"].variable} = {self.inplugs["ScaleInColor"].variable} * {self.inplugs["ScaleFloat"].variable};\n'
+        return f'vec4 {self.outplugs["ScaleOutColor"].variable} = {self.inplugs["ScaleInColor"].variable} * {self.inplugs["ScaleFloat"].variable}'
         
 class Vec4ToColorNode(Node):
     def __init__(self):
@@ -170,7 +168,7 @@ class Vec4ToColorNode(Node):
         self.addOutPlug(Plug('Color', self, 'vec4', 'color', ColorValue()))
         
     def customCode(self, name):
-        return f'\tvec4 {self.outplugs["Color"].variable} = vec4({self.inplugs["R"].variable}, {self.inplugs["G"].variable}, {self.inplugs["B"].variable}, {self.inplugs["A"].variable});\n'
+        return f'vec4 {self.outplugs["Color"].variable} = vec4({self.inplugs["R"].variable}, {self.inplugs["G"].variable}, {self.inplugs["B"].variable}, {self.inplugs["A"].variable})'
         
 class InvertColorNode(Node):
     def __init__(self):
@@ -180,7 +178,7 @@ class InvertColorNode(Node):
         self.outplugs['outColor'] = Plug('outColor', self, 'vec4', 'color', self.inplugs['inColor'], inParam=False)
         
     def customCode(self, name):
-        return f'\tvec4 {self.outplugs["outColor"].variable} = vec4(1-{self.inplugs["inColor"].variable}.r, 1-{self.inplugs["inColor"].variable}.g, 1-{self.inplugs["inColor"].variable}.b, {self.inplugs["inColor"].variable}.a);\n'
+        return f'vec4 {self.outplugs["outColor"].variable} = vec4(1-{self.inplugs["inColor"].variable}.r, 1-{self.inplugs["inColor"].variable}.g, 1-{self.inplugs["inColor"].variable}.b, {self.inplugs["inColor"].variable}.a)'
         
 class SolidColorNode(Node):
     def __init__(self):
