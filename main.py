@@ -12,8 +12,8 @@ from OpenGL.GL import shaders
 
 from readobj import Obj3D
 
-from shadergraph import uniforms, Plug, FragmentShaderGraph
-from shadergraph import ColorValue
+from shadergraph import NodeFactory, FragmentShaderGraph
+from shadergraph import uniforms, Plug, ColorValue
 
 REALTIME = True
 
@@ -41,6 +41,8 @@ fragmentBGShader = """
         }
     }
     """
+
+custom_nodes = {'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2',lambda w:'vec2('+str(w.GetGLExtents()[0])+', '+str(w.GetGLExtents()[1])+')')}
 
 class GLFrame( glcanvas.GLCanvas ):
     """A simple class for using OpenGL with wxPython."""
@@ -189,7 +191,12 @@ class GLFrame( glcanvas.GLCanvas ):
         code, globalcode = self.FragmentShaderGraph.nodes[0].generateCode('gl_FragColor', code, globalcode)
         
         fragmentShader = "#version 330\n\n"
+        
         fragmentShader += globalcode
+        
+        for name, value in custom_nodes.items():
+            fragmentShader += 'uniform '+value[2]+' '+name+' = '+value[3](self)+';\n'
+            
         fragmentShader += "\nvoid main() {\n"
         fragmentShader += code
         fragmentShader += "}"
@@ -212,6 +219,8 @@ class GLFrame( glcanvas.GLCanvas ):
             if self.bgvbo:
                 self.bgvbo.delete()
             self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
+        
+        self.FragmentShaderGraph.requires_compilation = True
         
     def OnDraw( self ):
         glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
@@ -283,6 +292,7 @@ class GraphWindow( wx.Panel ):
         self.selected_plug = None
         self.selected_plug2 = None
         self.lastx = self.lasty = 0
+        self.popupCoords = (0,0)
         
         self.BLACK_BRUSH = wx.Brush(wx.Colour(0,0,0))
         self.RED_BRUSH = wx.Brush(wx.Colour(255,0,0))
@@ -294,6 +304,10 @@ class GraphWindow( wx.Panel ):
         
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         
+        # custom nodes
+        for value in custom_nodes.values():
+            NodeFactory.addCustomNode(value[0], value[1])
+            
         self.InitUI()
 
     def InitUI(self):
@@ -307,14 +321,13 @@ class GraphWindow( wx.Panel ):
 
         #POPUP MENU
         self.popupMenu = wx.Menu()
-        for idx, nc in enumerate(self.graph.node_classes):
-            pm = self.popupMenu.Append( idx, f'{nc[0]}', 'Add '+nc[0] )
+        for idx, nodename in enumerate(NodeFactory.getNodeNames()):
+            pm = self.popupMenu.Append( idx, f'{nodename}', 'Add '+nodename )
             self.Bind( wx.EVT_MENU, self.OnAddNode, pm )
         
     def OnAddNode(self, event):
-        node = self.graph.node_classes[event.GetId()][1]()
-        #print('OnAddNode', node)
-        node.location = self.ScreenToClient(wx.GetMousePosition())
+        node = NodeFactory.getNewNode(event.GetEventObject().GetLabelText(event.GetId()))
+        node.location = self.popupCoords
         self.graph.nodes.append(node)
         
     def OnEraseBackground(self, event):
@@ -454,6 +467,7 @@ class GraphWindow( wx.Panel ):
         self.Refresh()
 
     def OnRightDown(self, event):
+        self.popupCoords = event.GetPosition()
         self.PopupMenu( self.popupMenu, event.GetPosition() )
 
     def OnMouseMotion(self, event):
@@ -595,7 +609,7 @@ class Window( wx.Frame ):
         backPanel.SetSizer(gridSizer)
         
         # MIN SIZE
-        self.SetSizeHints(700,300,-1,-1)
+        self.SetSizeHints(1000,450,-1,-1)
         gridSizer.Fit(self)
         
         # SHOW

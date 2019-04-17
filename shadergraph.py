@@ -6,7 +6,7 @@ UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
 
 class Plug:
     count = 1
-    def __init__(self, name, parent, type, variable, value, inparam=True, generate_variable=True, display=True, inParam=True):
+    def __init__(self, name, parent, type, variable, value, generate_variable=True, display=True, inParam=True, declare_variable=True):
         self.name = name
         self.parent = parent
         self.type = type
@@ -15,6 +15,7 @@ class Plug:
         self.defaultValue = value
         self.inParam = inParam
         self.declared = False
+        self.declare_variable = declare_variable
         
         if generate_variable:
             self.variable += str(Plug.count)
@@ -100,9 +101,10 @@ class Node:
                         globalcode += plug.value.value + ";\n"
                         plug.value.declared = True
                 else:
-                    out, gc = plug.value.parent.generateCode(plug.value.name, code, globalcode)
-                    code = out
-                    globalcode = gc
+                    if plug.value.declare_variable:
+                        out, gc = plug.value.parent.generateCode(plug.value.name, code, globalcode)
+                        code = out
+                        globalcode = gc
             
             out = f'\t{plug};\n'
             code += out
@@ -123,7 +125,7 @@ class UniformNode(Node):
         
         uniforms[name] = (UNIFORM_FUNCTION[count], function)
         
-        self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, False, inParam=False, generate_variable=False)
+        self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, inParam=False, generate_variable=False)
         self.addOutPlug(self.plug)
         
     def __str__(self):
@@ -180,11 +182,30 @@ class InvertColorNode(Node):
     def customCode(self, name):
         return f'vec4 {self.outplugs["outColor"].variable} = vec4(1-{self.inplugs["inColor"].variable}.r, 1-{self.inplugs["inColor"].variable}.g, 1-{self.inplugs["inColor"].variable}.b, {self.inplugs["inColor"].variable}.a)'
         
+class DivideNode(Node):
+    def __init__(self):
+        super().__init__('Divide')
+        
+        self.addInPlug(Plug('Divident', self, 'float', 'da', FloatValue()))
+        self.addInPlug(Plug('Divisor', self, 'float', 'db', FloatValue()))
+        self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
+        
+    def customCode(self, name):
+        return f'float {self.outplugs["Result"].variable} = {self.inplugs["Divident"].variable} / {self.inplugs["Divisor"].variable}'
+        
 class SolidColorNode(Node):
     def __init__(self):
         super().__init__('Solid Color')
         
-        self.outplugs['Color'] = Plug('Color', self, 'vec4', 'color', ColorValue((.1, .3, .7, 1)), inParam=False)
+        self.addOutPlug( Plug('Color', self, 'vec4', 'color', ColorValue((.1, .3, .7, 1))) )
+        
+class FragCoordNode(Node):
+    def __init__(self):
+        super().__init__('Coordinates')
+        
+        self.addOutPlug(Plug('X', self, 'float', 'gl_FragCoord.x', FloatValue(), generate_variable=False, declare_variable=False))
+        self.addOutPlug(Plug('Y', self, 'float', 'gl_FragCoord.y', FloatValue(), generate_variable=False, declare_variable=False))
+        self.addOutPlug(Plug('Z', self, 'float', 'gl_FragCoord.z', FloatValue(), generate_variable=False, declare_variable=False))
         
 class FragmentShaderNode(Node):
     def __init__(self):
@@ -193,23 +214,48 @@ class FragmentShaderNode(Node):
         self.inplugs['Color'] = Plug('Color', self, 'vec4', 'color', ColorValue())
         self.outplugs['gl_FragColor'] = Plug('gl_FragColor', self, '', 'gl_FragColor', self.inplugs['Color'], False, False, inParam=False)
         
+node_classes = {
+            'Solid Color': SolidColorNode,
+            'Invert Color': InvertColorNode,
+            'Scale Node': ScaleNode,
+            'Random Color': UniformRandomColorNode,
+            'Random Float': UniformRandomFloatNode,
+            'Vec4 to Color': Vec4ToColorNode,
+            'Frag Coords': FragCoordNode,
+            'Divide': DivideNode
+        }
+        
+custom_nodes = {}
+
+class NodeFactory:
+    def getNodeNames():
+        return list(node_classes.keys())+list(custom_nodes.keys())
+        
+    def getNewNode(name):
+        if name in node_classes:
+            return node_classes[name]()
+        elif name in custom_nodes:
+            _, outplugs = custom_nodes[name]
+            node = Node(name)
+            print(outplugs)
+            for plugname, rettype, variablename in outplugs:
+                node.addOutPlug(Plug(plugname, node, rettype, variablename, FloatValue(), generate_variable=False, display=True, inParam=False, declare_variable=False))
+            return node
+        else:
+            return None
+
+    def addCustomNode(name, outplugs):
+        custom_nodes[name] = (name, outplugs)
+    
+    
 class FragmentShaderGraph:
     def __init__(self):
         fsnode = FragmentShaderNode()
         fsnode.can_delete = False
-        fsnode.location = [200, 20]
+        fsnode.location = [300, 20]
         self.nodes = [fsnode]
         self.requires_compilation = True
 
-        self.node_classes = (
-            ('Solid Color', SolidColorNode),
-            ('Invert Color', InvertColorNode),
-            ('Scale Node', ScaleNode),
-            ('Random Color', UniformRandomColorNode),
-            ('Random Float', UniformRandomFloatNode),
-            ('Vec4 to Color', Vec4ToColorNode)
-        )
-        
     def removeNode(self, rnode):
         self.nodes.remove(rnode)
         for node in self.nodes:
@@ -232,10 +278,12 @@ if __name__ == '__main__':
     g = FragmentShaderGraph()
     vtc = Vec4ToColorNode()
     fn = UniformRandomFloatNode()
+    fc = FragCoordNode()
     
     g.nodes[0].inplugs['Color'].setValue(vtc.outplugs['Color'])
     vtc.inplugs['R'].setValue(fn.outplugs['Uniform'])
     vtc.inplugs['G'].setValue(fn.outplugs['Uniform'])
+    vtc.inplugs['B'].setValue(fc.outplugs['X'])
     
     code = ""
     globalcode = ""
