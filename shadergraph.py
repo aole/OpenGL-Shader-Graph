@@ -14,6 +14,7 @@ class Plug:
         self.value = value
         self.defaultValue = value
         self.inParam = inParam
+        self.declared = False
         
         if generate_variable:
             self.variable += str(Plug.count)
@@ -22,7 +23,7 @@ class Plug:
         self.display = display
         
     def __str__(self):
-        if type(self.value)==Plug:
+        if isinstance(self.value, Plug):
             return f'{self.type} {self.variable} = {self.value.variable}'
         else:
             return f'{self.type} {self.variable} = {self.value}'
@@ -97,16 +98,15 @@ class Node:
             print('\t', plugname, type(plug))
             if isinstance(plug.value, Plug) and plug.value.parent!=self:
                 if isinstance(plug.value.parent, UniformNode):
-                    print('\tuniformfloat:', type(plug.value.value))
-                    globalcode += plug.value.value + ";\n"
+                    if not plug.value.declared:
+                        globalcode += plug.value.value + ";\n"
+                        plug.value.declared = True
                 else:
                     out, gc = plug.value.parent.generateCode(plug.value.name, code, globalcode)
-                    print('adding code:', plug.value.parent.name,'.',plug.value.name,':',out)
                     code = out
                     globalcode = gc
             
             out = f'\t{plug};\n'
-            print('adding code2:', plugname, ':', out)
             code += out
         code += self.customCode(name)
         
@@ -116,12 +116,16 @@ class Node:
         return f'\t{self.outplugs[name]};\n'
         
 class UniformNode(Node):
+    varcount = 1
     def __init__(self, name, type, count, function):
         super().__init__(name)
         
+        name = name+str(UniformNode.varcount)
+        UniformNode.varcount += 1
+        
         uniforms[name] = (UNIFORM_FUNCTION[count], function)
         
-        self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, False, inParam=False)
+        self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, False, inParam=False, generate_variable=False)
         self.addOutPlug(self.plug)
         
     def __str__(self):
@@ -154,6 +158,19 @@ class ScaleNode(Node):
         
     def customCode(self, name):
         return f'\tvec4 {self.outplugs["ScaleOutColor"].variable} = {self.inplugs["ScaleInColor"].variable} * {self.inplugs["ScaleFloat"].variable};\n'
+        
+class Vec4ToColorNode(Node):
+    def __init__(self):
+        super().__init__('Vec4 to Color')
+        
+        self.addInPlug(Plug('R', self, 'float', 'r', FloatValue()))
+        self.addInPlug(Plug('G', self, 'float', 'g', FloatValue()))
+        self.addInPlug(Plug('B', self, 'float', 'b', FloatValue()))
+        self.addInPlug(Plug('A', self, 'float', 'a', FloatValue()))
+        self.addOutPlug(Plug('Color', self, 'vec4', 'color', ColorValue()))
+        
+    def customCode(self, name):
+        return f'\tvec4 {self.outplugs["Color"].variable} = vec4({self.inplugs["R"].variable}, {self.inplugs["G"].variable}, {self.inplugs["B"].variable}, {self.inplugs["A"].variable});\n'
         
 class InvertColorNode(Node):
     def __init__(self):
@@ -191,7 +208,8 @@ class FragmentShaderGraph:
             ('Invert Color', InvertColorNode),
             ('Scale Node', ScaleNode),
             ('Random Color', UniformRandomColorNode),
-            ('Random Float', UniformRandomFloatNode)
+            ('Random Float', UniformRandomFloatNode),
+            ('Vec4 to Color', Vec4ToColorNode)
         )
         
     def removeNode(self, rnode):
@@ -205,9 +223,28 @@ class FragmentShaderGraph:
                 except:
                     pass
                     
+    def prepare(self):
+        for node in self.nodes:
+            for plug in node.inplugs.values():
+                plug.declared = False
+            for plug in node.outplugs.values():
+                plug.declared = False
+                
 if __name__ == '__main__':
     g = FragmentShaderGraph()
+    vtc = Vec4ToColorNode()
+    fn = UniformRandomFloatNode()
+    
+    g.nodes[0].inplugs['Color'].setValue(vtc.outplugs['Color'])
+    vtc.inplugs['R'].setValue(fn.outplugs['Uniform'])
+    vtc.inplugs['G'].setValue(fn.outplugs['Uniform'])
+    
     code = ""
     globalcode = ""
+    g.prepare()
     code, globalcode = g.nodes[0].generateCode('gl_FragColor', code, globalcode)
+    print('===============')
+    print(globalcode)
+    print('---------------')
+    print(code)
     

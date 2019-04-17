@@ -15,6 +15,8 @@ from readobj import Obj3D
 from shadergraph import uniforms, Plug, FragmentShaderGraph
 from shadergraph import ColorValue
 
+REALTIME = True
+
 __author__ = 'Bhupendra Aole'
 __version__ = '0.1.0'
 
@@ -163,7 +165,8 @@ class GLFrame( glcanvas.GLCanvas ):
         
         self.compileShaders()
         
-        self.timer.Start(1000/60)    # 1 second interval
+        if REALTIME:
+            self.timer.Start(1000/60)    # 1 second interval
         
     def compileBGShaders(self):
         VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
@@ -177,6 +180,7 @@ class GLFrame( glcanvas.GLCanvas ):
         # Fragment Shader
         code = ""
         globalcode = ""
+        self.FragmentShaderGraph.prepare()
         code, globalcode = self.FragmentShaderGraph.nodes[0].generateCode('gl_FragColor', code, globalcode)
         
         fragmentShader = "#version 330\n\n"
@@ -304,6 +308,7 @@ class GraphWindow( wx.Panel ):
         
     def OnAddNode(self, event):
         node = self.graph.node_classes[event.GetId()][1]()
+        #print('OnAddNode', node)
         node.location = self.ScreenToClient(wx.GetMousePosition())
         self.graph.nodes.append(node)
         
@@ -401,6 +406,7 @@ class GraphWindow( wx.Panel ):
                     name = str(key)
                     w, h = dc.GetTextExtent(name)
                     
+                    dc.SetPen(self.BLACK_PEN)
                     # draw plug inputs
                     if isinstance(plug.value, ColorValue):
                         COLOR_BRUSH = wx.Brush(wx.Colour(*plug.value.GetColorInt()))
@@ -413,8 +419,6 @@ class GraphWindow( wx.Panel ):
                     # draw plug circle
                     if plug==self.selected_plug or plug==self.selected_plug2:
                         dc.SetPen(self.RED_PEN)
-                    else:
-                        dc.SetPen(self.BLACK_PEN)
                    
                     dc.DrawCircle(locx, y+h/2, 3)
                     self.pluglocation[plug] = (locx, y+h/2)
