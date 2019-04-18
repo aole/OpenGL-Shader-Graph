@@ -1,8 +1,4 @@
-from OpenGL.GL import glUniform1f, glUniform2f, glUniform3f, glUniform4f
 import random
-
-uniforms = {}
-UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
 
 class Plug:
     count = 1
@@ -136,7 +132,7 @@ class UniformNode(Node):
         name = name+str(UniformNode.varcount)
         UniformNode.varcount += 1
         
-        uniforms[name] = (UNIFORM_FUNCTION[count], function)
+        self.uniform = (name, count, function)
         
         self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, inParam=False, generate_variable=False)
         self.plug.editable = False
@@ -286,7 +282,6 @@ class NodeFactory:
     def addCustomNode(name, outplugs):
         custom_nodes[name] = (name, outplugs)
     
-    
 class FragmentShaderGraph:
     def __init__(self):
         fsnode = FragmentShaderNode()
@@ -294,7 +289,8 @@ class FragmentShaderGraph:
         fsnode.location = [350, 20]
         self.nodes = [fsnode]
         self.requires_compilation = True
-
+        self.uniforms = {}
+        
     def removeNode(self, rnode):
         self.nodes.remove(rnode)
         for node in self.nodes:
@@ -307,7 +303,10 @@ class FragmentShaderGraph:
                     pass
                     
     def prepare(self):
+        self.uniforms.clear()
         for node in self.nodes:
+            if isinstance(node, UniformNode):
+                self.uniforms[node.name] = node.uniform
             for plug in node.inplugs.values():
                 plug.declared = False
             for plug in node.outplugs.values():
@@ -319,6 +318,8 @@ if __name__ == '__main__':
     fn = UniformRandomFloatNode()
     fc = FragCoordNode()
     dv = DivideNode()
+    
+    g.nodes.extend([vtc,fn,fc,dv])
     
     g.nodes[0].inplugs['Color'].setValue(vtc.outplugs['Color'])
     vtc.inplugs['R'].setValue(fn.outplugs['Uniform'])

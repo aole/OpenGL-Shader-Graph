@@ -2,6 +2,7 @@ import wx
 import numpy as np
 import time
 import random
+import pickle
 
 from wx import glcanvas
 
@@ -13,7 +14,9 @@ from OpenGL.GL import shaders
 from readobj import Obj3D
 
 from shadergraph import NodeFactory, FragmentShaderGraph
-from shadergraph import uniforms, Plug, ColorValue, FloatValue
+from shadergraph import Plug, ColorValue, FloatValue
+
+UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
 
 REALTIME = True
 
@@ -80,10 +83,14 @@ class GLFrame( glcanvas.GLCanvas ):
         self.timer = wx.Timer(self)
         self.Bind(wx.EVT_TIMER, self.processPaintEvent)
 
-        self.FragmentShaderGraph = graph #FragmentShaderGraph()
+        self.graph = graph
     
     def GetGraph(self):
-        return self.FragmentShaderGraph
+        return self.graph
+        
+    def SetGraph(self, graph):
+        self.graph = graph
+        self.graph.requires_compilation = True
         
     def processEraseBackground(self, event):
         pass # Do nothing, to avoid flashing on MSW.
@@ -142,7 +149,7 @@ class GLFrame( glcanvas.GLCanvas ):
             self.OnInitGL()
             self.GLinitialized = True
 
-        if self.FragmentShaderGraph.requires_compilation:
+        if self.graph.requires_compilation:
             self.compileShaders()
             
         self.OnDraw()
@@ -187,8 +194,8 @@ class GLFrame( glcanvas.GLCanvas ):
         # Fragment Shader
         code = ""
         globalcode = ""
-        self.FragmentShaderGraph.prepare()
-        code, globalcode = self.FragmentShaderGraph.nodes[0].generateCode('gl_FragColor', code, globalcode)
+        self.graph.prepare()
+        code, globalcode = self.graph.nodes[0].generateCode('gl_FragColor', code, globalcode)
         
         fragmentShader = "#version 330\n\n"
         
@@ -208,7 +215,7 @@ class GLFrame( glcanvas.GLCanvas ):
         
         self.shader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
 
-        self.FragmentShaderGraph.requires_compilation = False
+        self.graph.requires_compilation = False
         
     def OnReshape( self, width, height ):
         """Reshape the OpenGL viewport based on the dimensions of the window."""
@@ -267,8 +274,8 @@ class GLFrame( glcanvas.GLCanvas ):
         glEnableClientState( GL_VERTEX_ARRAY );
         glVertexPointerf( self.fgvbo )
         
-        for uname, ufuncs in uniforms.items():
-            ufuncs[0]( glGetUniformLocation(self.shader, uname), *ufuncs[1]() )
+        for uname, ucount, ufuncs in self.graph.uniforms.values():
+            UNIFORM_FUNCTION[ucount]( glGetUniformLocation(self.shader, uname), *ufuncs() )
         
         for name, value in custom_nodes.items():
             value[4]( glGetUniformLocation(self.shader, name), *eval(value[3]) )
@@ -334,10 +341,9 @@ class GraphWindow( wx.Panel ):
             pm = self.popupMenu.Append( idx, f'{nodename}', 'Add '+nodename )
             self.Bind( wx.EVT_MENU, self.OnAddNode, pm )
         
-    def OnAddNode(self, event):
-        node = NodeFactory.getNewNode(event.GetEventObject().GetLabelText(event.GetId()))
-        node.location = self.popupCoords
-        self.graph.nodes.append(node)
+    def SetGraph(self, graph):
+        self.graph = graph
+        self.Refresh()
         
     def OnEraseBackground(self, event):
         pass
@@ -486,6 +492,12 @@ class GraphWindow( wx.Panel ):
                 x2, y2 = self.ScreenToClient(wx.GetMousePosition())
                 dc.DrawLine(x1, y1, x2, y2)
                 
+    def OnAddNode(self, event):
+        node = NodeFactory.getNewNode(event.GetEventObject().GetLabelText(event.GetId()))
+        node.location = self.popupCoords
+        self.graph.nodes.append(node)
+        self.graph.requires_compilation = True
+        
     def OnSize(self, e):
         self.Refresh()
 
@@ -626,11 +638,14 @@ class Window( wx.Frame ):
         fmenu = wx.Menu()
         
         fitem = fmenu.Append( wx.ID_OPEN, '&Open\tCtrl+O', 'Open file' )
-        self.Bind( wx.EVT_MENU, self.onOpen, fitem )
+        self.Bind( wx.EVT_MENU, self.OnOpen, fitem )
+        
+        fitem = fmenu.Append( wx.ID_SAVEAS, 'Save &As', 'Save file as' )
+        self.Bind( wx.EVT_MENU, self.OnSaveAs, fitem )
         
         fmenu.AppendSeparator()
         fitem = fmenu.Append( wx.ID_EXIT, 'E&xit\tCtrl+Q', 'Exit Application' )
-        self.Bind(wx.EVT_MENU, self.onQuit, fitem)
+        self.Bind(wx.EVT_MENU, self.OnQuit, fitem)
         
         mbar = wx.MenuBar()
         mbar.Append( fmenu, '&File' )
@@ -641,15 +656,15 @@ class Window( wx.Frame ):
         backPanel = wx.Panel(self, wx.ID_ANY)
         
         # GL WINDOW
-        glwindow = GLFrame(backPanel, self.graph)
+        self.glwindow = GLFrame( backPanel, self.graph)
         
         # GRAPH PANEL
-        graphPanel = GraphWindow( backPanel, glwindow.GetGraph() )
+        self.graphPanel = GraphWindow( backPanel, self.glwindow.GetGraph() )
         
         # LAYOUT
         gridSizer = wx.GridSizer(rows=1, cols=2, hgap=5, vgap=5)
-        gridSizer.Add(graphPanel, 0, wx.EXPAND)
-        gridSizer.Add(glwindow, 0, wx.EXPAND)
+        gridSizer.Add(self.graphPanel, 0, wx.EXPAND)
+        gridSizer.Add(self.glwindow, 0, wx.EXPAND)
         
         backPanel.SetSizer(gridSizer)
         
@@ -659,11 +674,40 @@ class Window( wx.Frame ):
         # SHOW
         self.Show()
         
-    def onQuit( self, event ):
+    def OnQuit( self, event ):
         self.Close()
         
-    def onOpen( self, event ):
-        print( 'open' )
+    def OnOpen( self, event ):
+        with wx.FileDialog(self, "Save GL Shader Graph file", wildcard="GL Shader Graph files (*.glsg)|*.glsg",
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as fileDialog:
+
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return     # the user changed their mind
+
+            # Proceed loading the file chosen by the user
+            pathname = fileDialog.GetPath()
+            try:
+                with open(pathname, 'rb') as f:
+                    self.graph = pickle.load(f)
+                    self.glwindow.SetGraph(self.graph)
+                    self.graphPanel.SetGraph(self.graph)
+            except IOError:
+                wx.LogError("Cannot open file '%s'." % newfile)
+            
+    def OnSaveAs( self, event ):
+        with wx.FileDialog(self, "Save GL Shader Graph file", wildcard="GL Shader Graph files (*.glsg)|*.glsg",
+                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as fileDialog:
+
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return     # the user changed their mind
+
+            # save the current contents in the file
+            pathname = fileDialog.GetPath()
+            try:
+                with open(pathname, 'wb') as f:
+                    pickle.dump(self.graph, f, 0)
+            except IOError:
+                wx.LogError("Cannot save current data in file '%s'." % pathname)
         
 class Application( wx.App ):
     def run( self ):
