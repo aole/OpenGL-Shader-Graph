@@ -290,15 +290,20 @@ class GraphWindow( wx.Panel ):
         self.nodeRects = {}
         self.pluglocation = {}
         self.left_down = False
+        self.middle_down = False
         self.selected_node = None
         self.selected_plug = None
         self.selected_plug2 = None
         self.lastx = self.lasty = 0
+        self.panx = self.pany = 0
         self.popupCoords = (0,0)
         
         self.BLACK_BRUSH = wx.Brush(wx.Colour(0,0,0))
+        self.BLACK_BRUSH_100 = wx.Brush(wx.Colour(0,0,0,100))
         self.RED_BRUSH = wx.Brush(wx.Colour(255,0,0))
         self.BLACK_PEN = wx.Pen(wx.Colour(0,0,0))
+        self.GRAY_PEN_100 = wx.Pen(wx.Colour(100,100,100))
+        self.GRAY_PEN_200 = wx.Pen(wx.Colour(200,200,200))
         self.RED_PEN = wx.Pen(wx.Colour(255,0,0))
         
         self.PLUGVALUEGAP = 6
@@ -318,6 +323,8 @@ class GraphWindow( wx.Panel ):
         self.Bind(wx.EVT_SIZE, self.OnSize)
         self.Bind(wx.EVT_RIGHT_DOWN, self.OnRightDown)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
+        self.Bind(wx.EVT_MIDDLE_DOWN, self.OnMiddleDown)
+        self.Bind(wx.EVT_MIDDLE_UP, self.OnMiddleUp)
         self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.Bind(wx.EVT_MOTION, self.OnMouseMotion)
 
@@ -340,17 +347,26 @@ class GraphWindow( wx.Panel ):
         dc.Clear()
         
         # paint background
-        #w, h = dc.GetSize().Get()
-        #dc.SetPen(wx.NullPen)
-        #COLOR_BRUSH = wx.Brush(wx.Colour(220, 225, 240))
-        #dc.SetBrush(COLOR_BRUSH)
-        #dc.DrawRectangle(0, 0, w, h)
+        w, h = dc.GetSize().Get()
+        gridsize = 50
+        # draw border
+        dc.DrawRectangle(0,0,w,h)
+        # draw secondary axis lines
+        dc.SetPen(self.GRAY_PEN_200)
+        for x in range(int(w/2+self.panx)%gridsize,w-1,gridsize):
+            dc.DrawLine(x, 0, x, h)
+        for y in range(int(h/2+self.pany)%gridsize,h-1,gridsize):
+            dc.DrawLine(0, y, w, y)
+        # draw main axis lines (horizontal and vertical)
+        dc.SetPen(self.GRAY_PEN_100)
+        dc.DrawLine(0, h/2+self.pany, w, h/2+self.pany)
+        dc.DrawLine(w/2+self.panx, 0, w/2+self.panx, h)
         
         self.TXT4WIDTH, self.TXTHEIGHT = dc.GetTextExtent('TEXT')
         
         if self.graph:
             for node in self.graph.nodes:
-                locx, locy = node.location
+                locx, locy = node.location[0]+self.panx, node.location[1]+self.pany
                 dc.SetPen(self.BLACK_PEN)
                 dc.SetBrush(wx.NullBrush)
                 
@@ -473,43 +489,71 @@ class GraphWindow( wx.Panel ):
     def OnSize(self, e):
         self.Refresh()
 
+    def OnMiddleDown(self, event):
+        self.middle_down = True
+        
+    def OnMiddleUp(self, event):
+        self.middle_down = False
+        
     def OnRightDown(self, event):
-        self.popupCoords = event.GetPosition()
+        self.popupCoords = event.GetPosition() - (self.panx, self.pany)
         self.PopupMenu( self.popupMenu, event.GetPosition() )
 
     def OnMouseMotion(self, event):
         x, y = event.GetPosition()
-        
-        if not self.selected_plug:
-            self.selected_node = None
-            for node, r in self.nodeRects.items():
-                if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
-                    self.selected_node = node
+        dx, dy = x-self.lastx, y-self.lasty
+        if self.middle_down:
+            self.panx += dx
+            self.pany += dy
+        else:
+            if not self.selected_plug:
+                self.selected_node = None
+                for node, r in self.nodeRects.items():
+                    if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
+                        self.selected_node = node
+                        
+            self.selected_plug2 = None
+            found = False
+            for plug, loc in self.pluglocation.items():
+                lx, ly = loc
+                if x>=lx-3 and x<=lx+3 and y>=ly-3 and y<=ly+3:
+                    if self.left_down and self.selected_plug and self.selected_plug != plug:
+                        self.selected_plug2 = plug
+                        found = True
+                    elif not self.left_down:
+                        self.selected_plug = plug
+                        found = True
+                    break
                     
-        self.selected_plug2 = None
-        found = False
-        for plug, loc in self.pluglocation.items():
-            lx, ly = loc
-            if x>=lx-3 and x<=lx+3 and y>=ly-3 and y<=ly+3:
-                if self.left_down and self.selected_plug and self.selected_plug != plug:
-                    self.selected_plug2 = plug
-                    found = True
-                elif not self.left_down:
-                    self.selected_plug = plug
-                    found = True
-                break
+            if not found and not self.left_down:
+                self.selected_plug = None
                 
-        if not found and not self.left_down:
-            self.selected_plug = None
-            
-        if self.left_down:
-            if self.selected_node:
-                self.selected_node.location[0] += x - self.lastx
-                self.selected_node.location[1] += y - self.lasty
+            if self.left_down:
+                if self.selected_node:
+                    self.selected_node.location[0] += x - self.lastx
+                    self.selected_node.location[1] += y - self.lasty
                     
         self.Refresh()
         self.lastx, self.lasty = x, y
         
+    def triggerPlugInput( self, plug ):
+        if not plug.editable:
+            return
+            
+        if isinstance(plug.value, ColorValue):
+            data = wx.ColourData()
+            data.SetColour(wx.Colour(*plug.value.GetColorInt()))
+            dialog = wx.ColourDialog(self, data)
+            if dialog.ShowModal() == wx.ID_OK:
+                retColor = dialog.GetColourData().GetColour()
+                plug.value.SetColorInt(*retColor.Get(False))
+                self.graph.requires_compilation = True
+        elif isinstance(plug.value, FloatValue):
+            dialog = wx.TextEntryDialog(self, 'Enter Value', caption='Enter Value',value=plug.value.GetFloat())
+            if dialog.ShowModal() == wx.ID_OK:
+                plug.value.SetFloat(dialog.GetValue())
+                self.graph.requires_compilation = True
+    
     def OnLeftUp(self, event):
         self.left_down = False
         x, y = event.GetPosition()
@@ -529,37 +573,13 @@ class GraphWindow( wx.Panel ):
                 if plug.parent != self.selected_node:
                     continue
                 lx, ly = loc
+                # input plugs on the left side
                 if plug.inParam and x>=lx+self.PLUGVALUEGAP and x<=lx+self.PLUGVALUEGAP+self.TXT4WIDTH and y>=ly-self.TXTHEIGHT/2 and y<=ly+self.TXTHEIGHT/2:
-                    if isinstance(plug.value, ColorValue):
-                        data = wx.ColourData()
-                        data.SetColour(wx.Colour(*plug.value.GetColorInt()))
-                        dialog = wx.ColourDialog(self, data)
-                        if dialog.ShowModal() == wx.ID_OK:
-                            retColor = dialog.GetColourData().GetColour()
-                            plug.value.SetColorInt(*retColor.Get(False))
-                            self.graph.requires_compilation = True
-                    elif isinstance(plug.value, FloatValue):
-                        dialog = wx.TextEntryDialog(self, 'Enter Value', caption='Enter Value',value=plug.value.GetFloat())
-                        if dialog.ShowModal() == wx.ID_OK:
-                            plug.value.SetFloat(dialog.GetValue())
-                            self.graph.requires_compilation = True
-                            
+                    self.triggerPlugInput(plug)
                     break
+                # output plugs on the right side
                 elif not plug.inParam and x>lx-(self.PLUGVALUEGAP+self.TXT4WIDTH) and x<lx-self.PLUGVALUEGAP and y>=ly-self.TXTHEIGHT/2 and y<=ly+self.TXTHEIGHT/2:
-                    if isinstance(plug.value, ColorValue):
-                        data = wx.ColourData()
-                        data.SetColour(wx.Colour(*plug.value.GetColorInt()))
-                        dialog = wx.ColourDialog(self, data)
-                        if dialog.ShowModal() == wx.ID_OK:
-                            retColor = dialog.GetColourData().GetColour()
-                            plug.value.SetColorInt(*retColor.Get(False))
-                            self.graph.requires_compilation = True
-                    elif isinstance(plug.value, FloatValue):
-                        dialog = wx.TextEntryDialog(self, 'Enter Value', caption='Enter Value',value=plug.value.GetFloat())
-                        if dialog.ShowModal() == wx.ID_OK:
-                            plug.value.SetFloat(dialog.GetValue())
-                            self.graph.requires_compilation = True
-                            
+                    self.triggerPlugInput(plug)
                     break
                     
         self.selected_plug = self.selected_plug2 = self.selected_node = None
@@ -633,9 +653,8 @@ class Window( wx.Frame ):
         
         backPanel.SetSizer(gridSizer)
         
-        # MIN SIZE
-        self.SetSizeHints(1000,450,-1,-1)
-        gridSizer.Fit(self)
+        # MIN SIZE to avoid gl error
+        self.SetSizeHints(200,100,-1,-1)
         
         # SHOW
         self.Show()
@@ -648,7 +667,7 @@ class Window( wx.Frame ):
         
 class Application( wx.App ):
     def run( self ):
-        frame = Window(None, wx.ID_ANY, 'OpenGL Shader Graph')
+        frame = Window(None, wx.ID_ANY, 'OpenGL Shader Graph', size=(1000,450))
         frame.Show()
 
         self.MainLoop()

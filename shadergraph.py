@@ -16,6 +16,7 @@ class Plug:
         self.inParam = inParam
         self.declared = False
         self.declare_variable = declare_variable
+        self.editable = True
         
         if generate_variable:
             self.variable += str(Plug.count)
@@ -88,6 +89,8 @@ class Node:
         
     def addOutPlug(self, plug):
         plug.inParam = False
+        if self.inplugs:
+            plug.editable = False
         self.outplugs[plug.name] = plug
         
     def setValue(self, name, plug):
@@ -136,6 +139,7 @@ class UniformNode(Node):
         uniforms[name] = (UNIFORM_FUNCTION[count], function)
         
         self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, inParam=False, generate_variable=False)
+        self.plug.editable = False
         self.addOutPlug(self.plug)
         
     def __str__(self):
