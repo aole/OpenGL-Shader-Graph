@@ -110,10 +110,11 @@ class Node:
                         globalcode += plug.value.value + ";\n"
                         plug.value.declared = True
                 else:
-                    if plug.value.declare_variable:
+                    if plug.value.declare_variable and not plug.value.declared:
                         out, gc = plug.value.parent.generateCode(plug.value.name, code, globalcode)
                         code = out
                         globalcode = gc
+                        plug.value.declared = True
             
             out = f'\t{plug};\n'
             code += out
@@ -288,11 +289,13 @@ if __name__ == '__main__':
     vtc = Vec4ToColorNode()
     fn = UniformRandomFloatNode()
     fc = FragCoordNode()
+    dv = DivideNode()
     
     g.nodes[0].inplugs['Color'].setValue(vtc.outplugs['Color'])
     vtc.inplugs['R'].setValue(fn.outplugs['Uniform'])
-    vtc.inplugs['G'].setValue(fn.outplugs['Uniform'])
-    vtc.inplugs['B'].setValue(fc.outplugs['X'])
+    vtc.inplugs['G'].setValue(fc.outplugs['X'])
+    vtc.inplugs['B'].setValue(dv.outplugs['Result'])
+    vtc.inplugs['A'].setValue(dv.outplugs['Result'])
     
     code = ""
     globalcode = ""

@@ -576,7 +576,10 @@ class GraphWindow( wx.Panel ):
                         break
                     else:
                         self.selected_node = node
-        
+        elif self.selected_plug and wx.GetKeyState(wx.WXK_CONTROL) and self.selected_plug.inParam:
+            self.selected_plug.setDefaultValue()
+            self.graph.requires_compilation = True
+            
         self.left_down = True
         self.lastx, self.lasty = x, y
         self.Refresh()
