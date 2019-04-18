@@ -42,7 +42,7 @@ fragmentBGShader = """
     }
     """
 
-custom_nodes = {'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2',lambda w:'vec2('+str(w.GetGLExtents()[0])+', '+str(w.GetGLExtents()[1])+')')}
+custom_nodes = {'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2','self.GetGLExtents()', glUniform2f)}
 
 class GLFrame( glcanvas.GLCanvas ):
     """A simple class for using OpenGL with wxPython."""
@@ -195,7 +195,7 @@ class GLFrame( glcanvas.GLCanvas ):
         fragmentShader += globalcode
         
         for name, value in custom_nodes.items():
-            fragmentShader += 'uniform '+value[2]+' '+name+' = '+value[3](self)+';\n'
+            fragmentShader += 'uniform '+value[2]+' '+name+';\n' #' = '+value[3](self)+';\n'
             
         fragmentShader += "\nvoid main() {\n"
         fragmentShader += code
@@ -219,8 +219,6 @@ class GLFrame( glcanvas.GLCanvas ):
             if self.bgvbo:
                 self.bgvbo.delete()
             self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
-        
-        self.FragmentShaderGraph.requires_compilation = True
         
     def OnDraw( self ):
         glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
@@ -264,6 +262,7 @@ class GLFrame( glcanvas.GLCanvas ):
         glRotated( self.world_rot[0], 1, 0, 0 )
         
         shaders.glUseProgram( self.shader )
+        
         self.fgvbo.bind()
         glEnableClientState( GL_VERTEX_ARRAY );
         glVertexPointerf( self.fgvbo )
@@ -271,6 +270,9 @@ class GLFrame( glcanvas.GLCanvas ):
         for uname, ufuncs in uniforms.items():
             ufuncs[0]( glGetUniformLocation(self.shader, uname), *ufuncs[1]() )
         
+        for name, value in custom_nodes.items():
+            value[4]( glGetUniformLocation(self.shader, name), *eval(value[3]) )
+            
         glDrawArrays( GL_TRIANGLES, 0, len( self.fgvbo ) )
         self.fgvbo.unbind()
         glDisableClientState( GL_VERTEX_ARRAY );

@@ -203,11 +203,34 @@ class DivideNode(Node):
     def customCode(self, name):
         return f'float {self.outplugs["Result"].variable} = {self.inplugs["Divident"].variable} / {self.inplugs["Divisor"].variable}'
         
+class SubtractNode(Node):
+    def __init__(self):
+        super().__init__('Subtract')
+        
+        self.addInPlug(Plug('From', self, 'float', 'sa', FloatValue()))
+        self.addInPlug(Plug('What', self, 'float', 'sb', FloatValue()))
+        self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
+        
+    def customCode(self, name):
+        return f'float {self.outplugs["Result"].variable} = {self.inplugs["From"].variable} - {self.inplugs["What"].variable}'
+        
 class SolidColorNode(Node):
     def __init__(self):
         super().__init__('Solid Color')
         
         self.addOutPlug( Plug('Color', self, 'vec4', 'color', ColorValue((.1, .3, .7, 1))) )
+        
+class SmoothStepNode(Node):
+    def __init__(self):
+        super().__init__('Smooth Step')
+        
+        self.addInPlug( Plug('Edge1', self, 'float', 'ea', FloatValue()) )
+        self.addInPlug( Plug('Edge2', self, 'float', 'eb', FloatValue()) )
+        self.addInPlug( Plug('Interpolation', self, 'float', 'x', FloatValue()) )
+        self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
+        
+    def customCode(self, name):
+        return f'float {self.outplugs["Result"].variable} = smoothstep({self.inplugs["Edge1"].variable}, {self.inplugs["Edge2"].variable}, {self.inplugs["Interpolation"].variable})'
         
 class FragCoordNode(Node):
     def __init__(self):
@@ -232,7 +255,9 @@ node_classes = {
             'Random Float': UniformRandomFloatNode,
             'Vec4 to Color': Vec4ToColorNode,
             'Frag Coords': FragCoordNode,
-            'Divide': DivideNode
+            'Divide': DivideNode,
+            'Subtract': SubtractNode,
+            'Smooth Step': SmoothStepNode,
         }
         
 custom_nodes = {}
