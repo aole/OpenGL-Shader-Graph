@@ -7,3 +7,5 @@
 **Examples:**
 
 ![Screenshot](screenshot.jpg?raw=true)
+
+![Diagonal Line](examples\DiagonalLine.jpg?raw=true)

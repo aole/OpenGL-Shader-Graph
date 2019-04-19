@@ -214,6 +214,17 @@ class SubtractNode(Node):
     def customCode(self, name):
         return f'float {self.outplugs["Result"].variable} = {self.inplugs["From"].variable} - {self.inplugs["What"].variable}'
         
+class AddColorNode(Node):
+    def __init__(self):
+        super().__init__('Add Color')
+        
+        self.addInPlug(Plug('Color1', self, 'vec4', 'ca', ColorValue()))
+        self.addInPlug(Plug('Color2', self, 'vec4', 'cb', ColorValue()))
+        self.addOutPlug( Plug('Result', self, 'vec4', 'r', ColorValue()) )
+        
+    def customCode(self, name):
+        return f'vec4 {self.outplugs["Result"].variable} = {self.inplugs["Color1"].variable} + {self.inplugs["Color2"].variable}'
+        
 class SolidColorNode(Node):
     def __init__(self):
         super().__init__('Solid Color')
@@ -231,6 +242,17 @@ class SmoothStepNode(Node):
         
     def customCode(self, name):
         return f'float {self.outplugs["Result"].variable} = smoothstep({self.inplugs["Edge1"].variable}, {self.inplugs["Edge2"].variable}, {self.inplugs["Interpolation"].variable})'
+        
+class PlotNode(Node):
+    def __init__(self):
+        super().__init__('Plot')
+        
+        self.addInPlug( Plug('Pct', self, 'float', 'p', FloatValue()) )
+        self.addInPlug( Plug('Interp', self, 'float', 'i', FloatValue()) )
+        self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
+        
+    def customCode(self, name):
+        return f'float {self.outplugs["Result"].variable} = smoothstep({self.inplugs["Pct"].variable}-0.02,{self.inplugs["Pct"].variable},{self.inplugs["Interp"].variable}) - smoothstep({self.inplugs["Pct"].variable},{self.inplugs["Pct"].variable}+0.02,{self.inplugs["Interp"].variable})'
         
 class FragCoordNode(Node):
     def __init__(self):
@@ -258,6 +280,8 @@ node_classes = {
             'Divide': DivideNode,
             'Subtract': SubtractNode,
             'Smooth Step': SmoothStepNode,
+            'Plot Line': PlotNode,
+            'Add Color': AddColorNode,
         }
         
 custom_nodes = {}
@@ -311,7 +335,13 @@ class FragmentShaderGraph:
                 plug.declared = False
             for plug in node.outplugs.values():
                 plug.declared = False
-                
+    
+    def new( self ):
+        self.uniforms.clear()
+        self.nodes[0].inplugs['Color'].setDefaultValue()
+        self.nodes.clear()
+        self.requires_compilation = True
+        
 if __name__ == '__main__':
     g = FragmentShaderGraph()
     vtc = Vec4ToColorNode()
@@ -335,4 +365,7 @@ if __name__ == '__main__':
     print(globalcode)
     print('---------------')
     print(code)
+    
+    g.new()
+    
     

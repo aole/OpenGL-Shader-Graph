@@ -637,6 +637,9 @@ class Window( wx.Frame ):
         # MENU
         fmenu = wx.Menu()
         
+        fitem = fmenu.Append( wx.ID_NEW, '&New\tCtrl+N', 'New file' )
+        self.Bind( wx.EVT_MENU, self.OnNew, fitem )
+        
         fitem = fmenu.Append( wx.ID_OPEN, '&Open\tCtrl+O', 'Open file' )
         self.Bind( wx.EVT_MENU, self.OnOpen, fitem )
         
@@ -668,7 +671,7 @@ class Window( wx.Frame ):
         
         backPanel.SetSizer(gridSizer)
         
-        # MIN SIZE to avoid gl error
+        # MIN SIZE to avoid GL error
         self.SetSizeHints(200,100,-1,-1)
         
         # SHOW
@@ -676,6 +679,10 @@ class Window( wx.Frame ):
         
     def OnQuit( self, event ):
         self.Close()
+    
+    def OnNew( self, event ):
+        self.graph.new()
+        self.graph.requires_compilation = True
         
     def OnOpen( self, event ):
         with wx.FileDialog(self, "Save GL Shader Graph file", wildcard="GL Shader Graph files (*.glsg)|*.glsg",
