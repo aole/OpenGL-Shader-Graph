@@ -14,7 +14,7 @@ from OpenGL.GL import shaders
 from readobj import Obj3D
 
 from shadergraph import NodeFactory, FragmentShaderGraph
-from shadergraph import Plug, ColorValue, FloatValue
+from shadergraph import Plug, ColorValue, FloatValue, StringValue
 
 UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
 
@@ -45,7 +45,7 @@ fragmentBGShader = """
     }
     """
 
-custom_nodes = {'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2','self.GetGLExtents()', glUniform2f)}
+custom_nodes = {'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2','self.GetGLExtents()', glUniform2f), 'sg_Time':('Time', [('time', 'float', 'sg_Time')], 'float','[time.clock()]', glUniform1f)}
 
 class GLFrame( glcanvas.GLCanvas ):
     """A simple class for using OpenGL with wxPython."""
@@ -424,17 +424,7 @@ class GraphWindow( wx.Panel ):
                     w, h = dc.GetTextExtent(name)
                     
                     dc.SetPen(self.BLACK_PEN)
-                    # draw plug inputs
-                    if isinstance(plug.value, ColorValue):
-                        COLOR_BRUSH = wx.Brush(wx.Colour(*plug.value.GetColorInt()))
-                        dc.SetBrush(COLOR_BRUSH)
-                        dc.DrawRoundedRectangle(locx+2+txtwidth+10-self.TXT4WIDTH, y, self.TXT4WIDTH, self.TXTHEIGHT, 3)
-                        dc.SetBrush(wx.NullBrush)
-                    elif isinstance(plug.value, FloatValue):
-                        dc.DrawRectangle(locx+2+txtwidth+10-self.TXT4WIDTH, y, self.TXT4WIDTH, self.TXTHEIGHT)
-                        dc.DrawText(plug.value.GetFloat(), locx+2+txtwidth+13-self.TXT4WIDTH, y)
-                    else:
-                        dc.DrawText(name, locx+2 + (txtwidth+11-w), y)
+                    dc.DrawText(name, locx+2 + (txtwidth+11-w), y)
                     
                     if plug==self.selected_plug or plug==self.selected_plug2:
                         dc.SetPen(self.RED_PEN)
@@ -462,6 +452,9 @@ class GraphWindow( wx.Panel ):
                     elif isinstance(plug.value, FloatValue):
                         dc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH, self.TXTHEIGHT)
                         dc.DrawText(plug.value.GetFloat(), locx+self.PLUGVALUEGAP+3, y)
+                    elif isinstance(plug.value, StringValue):
+                        dc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH*2, self.TXTHEIGHT)
+                        dc.DrawText(plug.value.value, locx+self.PLUGVALUEGAP+3, y)
                     else:
                         dc.DrawText(name, locx+self.PLUGVALUEGAP, y)
                     
@@ -573,6 +566,11 @@ class GraphWindow( wx.Panel ):
             dialog = wx.TextEntryDialog(self, 'Enter Value', caption='Enter Value',value=plug.value.GetFloat())
             if dialog.ShowModal() == wx.ID_OK:
                 plug.value.SetFloat(dialog.GetValue())
+                self.graph.requires_compilation = True
+        elif isinstance(plug.value, StringValue):
+            dialog = wx.TextEntryDialog(self, 'Enter Value', caption='Enter Value',value=plug.value.GetValue())
+            if dialog.ShowModal() == wx.ID_OK:
+                plug.value.SetValue(dialog.GetValue())
                 self.graph.requires_compilation = True
     
     def OnLeftUp(self, event):
@@ -721,6 +719,7 @@ class Window( wx.Frame ):
                     self.glwindow.SetGraph(self.graph)
                     self.graphPanel.SetGraph(self.graph)
                     self.codePanel.SetValue(self.glwindow.generateCode())
+                    self.graph.updateVariableCount()
             except IOError:
                 wx.LogError("Cannot open file '%s'." % newfile)
             

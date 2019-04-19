@@ -33,11 +33,21 @@ class Plug:
         self.value = self.defaultValue
         
 class Value:
-    def __init__(self):
+    def __init__(self, value=''):
         self.parent = None
+        self.value = value
+        
+    def __str__(self):
+        return f'{self.value}'
         
     def __repr__(self):
         return self.__str__()
+    
+    def GetValue(self):
+        return self.value
+    
+    def SetValue(self, value):
+        self.value = value
         
 class ColorValue(Value):
     def __init__(self, color=(.9,.9,.9,1)):
@@ -55,11 +65,7 @@ class ColorValue(Value):
         
 class FloatValue(Value):
     def __init__(self, value=0.5):
-        super().__init__()
-        self.value = value
-        
-    def __str__(self):
-        return f'{self.value}'
+        super().__init__(value)
         
     def GetFloat(self):
         return str(round(self.value, 3))
@@ -70,6 +76,10 @@ class FloatValue(Value):
         except:
             pass
         
+class StringValue(Value):
+    def __init__(self, value='sin'):
+        super().__init__(value)
+
 class Node:
     def __init__( self, name='Node' ):
         self.inplugs = {}
@@ -114,9 +124,9 @@ class Node:
                         code = out
                         globalcode = gc
                         plug.value.declared = True
-            
-            out = f'\t{plug};\n'
-            code += out
+            if plug.declare_variable:
+                out = f'\t{plug};\n'
+                code += out
         code += '\t'+self.customCode(name).strip()+';\n'
         
         return code, globalcode
@@ -254,6 +264,17 @@ class PlotNode(Node):
     def customCode(self, name):
         return f'float {self.outplugs["Result"].variable} = smoothstep({self.inplugs["Pct"].variable}-0.02,{self.inplugs["Pct"].variable},{self.inplugs["Interp"].variable}) - smoothstep({self.inplugs["Pct"].variable},{self.inplugs["Pct"].variable}+0.02,{self.inplugs["Interp"].variable})'
         
+class FunctionSingleNode(Node):
+    def __init__(self):
+        super().__init__('Function (Single)')
+        
+        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('sin'), declare_variable=False) )
+        self.addInPlug( Plug('Value', self, 'float', 'v', FloatValue()) )
+        self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
+        
+    def customCode(self, name):
+        return f'float {self.outplugs["Result"].variable} = {self.inplugs["Function"].value}({self.inplugs["Value"].variable})'
+
 class FragCoordNode(Node):
     def __init__(self):
         super().__init__('Coordinates')
@@ -282,6 +303,7 @@ node_classes = {
             'Smooth Step': SmoothStepNode,
             'Plot Line': PlotNode,
             'Add Color': AddColorNode,
+            'Function (Single)': FunctionSingleNode,
         }
         
 custom_nodes = {}
@@ -338,9 +360,21 @@ class FragmentShaderGraph:
     
     def new( self ):
         self.uniforms.clear()
-        self.nodes[0].inplugs['Color'].setDefaultValue()
         self.nodes.clear()
+        fsnode = FragmentShaderNode()
+        fsnode.can_delete = False
+        fsnode.location = [350, 20]
+        self.nodes.append(fsnode)
+        Plug.count = 1
         self.requires_compilation = True
+        
+    def updateVariableCount( self ):
+        Plug.count = 1
+        for node in self.nodes:
+            for plug in node.inplugs.values():
+                Plug.count += 1
+            for plug in node.outplugs.values():
+                Plug.count += 1
         
 if __name__ == '__main__':
     g = FragmentShaderGraph()
