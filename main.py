@@ -84,7 +84,7 @@ class GLFrame( glcanvas.GLCanvas ):
         self.Bind(wx.EVT_TIMER, self.processPaintEvent)
 
         self.graph = graph
-    
+        
     def GetGraph(self):
         return self.graph
         
@@ -188,10 +188,7 @@ class GLFrame( glcanvas.GLCanvas ):
         
         self.bgshader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
     
-    def compileShaders(self):
-        VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
-        
-        # Fragment Shader
+    def generateCode( self ):
         code = ""
         globalcode = ""
         self.graph.prepare()
@@ -206,7 +203,15 @@ class GLFrame( glcanvas.GLCanvas ):
             
         fragmentShader += "\nvoid main() {\n"
         fragmentShader += code
-        fragmentShader += "}"
+        fragmentShader += "}\n"
+        
+        return fragmentShader
+        
+    def compileShaders(self):
+        VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
+        
+        # Fragment Shader
+        fragmentShader = self.generateCode()
         
         print('====================')
         print(fragmentShader)
@@ -306,10 +311,12 @@ class GraphWindow( wx.Panel ):
         self.popupCoords = (0,0)
         
         self.BLACK_BRUSH = wx.Brush(wx.Colour(0,0,0))
+        self.GRAY_BRUSH_200 = wx.Brush(wx.Colour(200,200,200))
         self.BLACK_BRUSH_100 = wx.Brush(wx.Colour(0,0,0,100))
         self.RED_BRUSH = wx.Brush(wx.Colour(255,0,0))
         self.BLACK_PEN = wx.Pen(wx.Colour(0,0,0))
         self.GRAY_PEN_100 = wx.Pen(wx.Colour(100,100,100))
+        self.GRAY_PEN_150 = wx.Pen(wx.Colour(150,150,150))
         self.GRAY_PEN_200 = wx.Pen(wx.Colour(200,200,200))
         self.RED_PEN = wx.Pen(wx.Colour(255,0,0))
         
@@ -356,9 +363,10 @@ class GraphWindow( wx.Panel ):
         w, h = dc.GetSize().Get()
         gridsize = 50
         # draw border
+        dc.SetBrush(self.GRAY_BRUSH_200)
         dc.DrawRectangle(0,0,w,h)
         # draw secondary axis lines
-        dc.SetPen(self.GRAY_PEN_200)
+        dc.SetPen(self.GRAY_PEN_150)
         for x in range(int(w/2+self.panx)%gridsize,w-1,gridsize):
             dc.DrawLine(x, 0, x, h)
         for y in range(int(h/2+self.pany)%gridsize,h-1,gridsize):
@@ -392,6 +400,7 @@ class GraphWindow( wx.Panel ):
                         txtwidth = w
                 
                 # print name
+                #dc.SetBrush(self.GRAY_BRUSH_200)
                 dc.DrawRoundedRectangle(locx, locy, txtwidth+4+15, txtheight+4, 3)
                 dc.DrawText(nodename, locx+2, locy+2)
                 if node.can_delete:
@@ -661,12 +670,22 @@ class Window( wx.Frame ):
         # GL WINDOW
         self.glwindow = GLFrame( backPanel, self.graph)
         
+        # Tabs
+        tabs = wx.Notebook( backPanel )
+        tabs.Bind( wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnTabChanged )
+        
         # GRAPH PANEL
-        self.graphPanel = GraphWindow( backPanel, self.glwindow.GetGraph() )
+        self.graphPanel = GraphWindow( tabs, self.glwindow.GetGraph() )
+        tabs.InsertPage( 0, self.graphPanel, 'Shader Graph' )
+        
+        # CODE PANEL
+        self.codePanel = wx.TextCtrl( tabs, style=wx.TE_MULTILINE )
+        self.codePanel.SetEditable( False )
+        tabs.InsertPage( 1, self.codePanel, 'Shader Code' )
         
         # LAYOUT
         gridSizer = wx.GridSizer(rows=1, cols=2, hgap=5, vgap=5)
-        gridSizer.Add(self.graphPanel, 0, wx.EXPAND)
+        gridSizer.Add(tabs, 0, wx.EXPAND)
         gridSizer.Add(self.glwindow, 0, wx.EXPAND)
         
         backPanel.SetSizer(gridSizer)
@@ -676,6 +695,9 @@ class Window( wx.Frame ):
         
         # SHOW
         self.Show()
+    
+    def OnTabChanged( self, event ):
+        self.codePanel.SetValue(self.glwindow.generateCode())
         
     def OnQuit( self, event ):
         self.Close()
@@ -698,6 +720,7 @@ class Window( wx.Frame ):
                     self.graph = pickle.load(f)
                     self.glwindow.SetGraph(self.graph)
                     self.graphPanel.SetGraph(self.graph)
+                    self.codePanel.SetValue(self.glwindow.generateCode())
             except IOError:
                 wx.LogError("Cannot open file '%s'." % newfile)
             

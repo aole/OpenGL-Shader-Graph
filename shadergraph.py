@@ -135,8 +135,8 @@ class UniformNode(Node):
         self.uniform = (name, count, function)
         
         self.plug = Plug('Uniform', self, type, name, "uniform "+type+" "+name, inParam=False, generate_variable=False)
-        self.plug.editable = False
         self.addOutPlug(self.plug)
+        self.plug.editable = False
         
     def __str__(self):
         return self.plug.value
@@ -296,9 +296,10 @@ class NodeFactory:
         elif name in custom_nodes:
             _, outplugs = custom_nodes[name]
             node = Node(name)
-            print(outplugs)
             for plugname, rettype, variablename in outplugs:
-                node.addOutPlug(Plug(plugname, node, rettype, variablename, FloatValue(), generate_variable=False, display=True, inParam=False, declare_variable=False))
+                plug = Plug(plugname, node, rettype, variablename, FloatValue(), generate_variable=False, display=True, inParam=False, declare_variable=False)
+                node.addOutPlug(plug)
+                plug.editable = False
             return node
         else:
             return None
@@ -322,7 +323,6 @@ class FragmentShaderGraph:
                 try:
                     if rnode==plug.value.parent:
                         plug.setDefaultValue()
-                        print('setDefaultValue')
                 except:
                     pass
                     
