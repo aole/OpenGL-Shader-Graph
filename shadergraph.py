@@ -266,14 +266,26 @@ class PlotNode(Node):
         
 class FunctionSingleNode(Node):
     def __init__(self):
-        super().__init__('Function (Single)')
+        super().__init__('Function (I)')
         
         self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('sin'), declare_variable=False) )
-        self.addInPlug( Plug('Value', self, 'float', 'v', FloatValue()) )
+        self.addInPlug( Plug('Param', self, 'float', 'p', FloatValue()) )
         self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
         
     def customCode(self, name):
-        return f'float {self.outplugs["Result"].variable} = {self.inplugs["Function"].value}({self.inplugs["Value"].variable})'
+        return f'float {self.outplugs["Result"].variable} = {self.inplugs["Function"].value}({self.inplugs["Param"].variable})'
+
+class FunctionDoubleNode(Node):
+    def __init__(self):
+        super().__init__('Function (II)')
+        
+        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('step'), declare_variable=False) )
+        self.addInPlug( Plug('Param1', self, 'float', 'pa', FloatValue()) )
+        self.addInPlug( Plug('Param2', self, 'float', 'pb', FloatValue()) )
+        self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
+        
+    def customCode(self, name):
+        return f'float {self.outplugs["Result"].variable} = {self.inplugs["Function"].value}({self.inplugs["Param1"].variable}, {self.inplugs["Param2"].variable})'
 
 class FragCoordNode(Node):
     def __init__(self):
@@ -303,7 +315,8 @@ node_classes = {
             'Smooth Step': SmoothStepNode,
             'Plot Line': PlotNode,
             'Add Color': AddColorNode,
-            'Function (Single)': FunctionSingleNode,
+            'Function (I)': FunctionSingleNode,
+            'Function (II)': FunctionDoubleNode,
         }
         
 custom_nodes = {}
