@@ -213,16 +213,17 @@ class DivideNode(Node):
     def customCode(self, name):
         return f'float {self.outplugs["Result"].variable} = {self.inplugs["Divident"].variable} / {self.inplugs["Divisor"].variable}'
         
-class SubtractNode(Node):
+class OperatorNode(Node):
     def __init__(self):
-        super().__init__('Subtract')
+        super().__init__('Operator (II)')
         
+        self.addInPlug( Plug('Operator', self, 'float', 'o', StringValue('+'), declare_variable=False) )
         self.addInPlug(Plug('From', self, 'float', 'sa', FloatValue()))
         self.addInPlug(Plug('What', self, 'float', 'sb', FloatValue()))
         self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
         
     def customCode(self, name):
-        return f'float {self.outplugs["Result"].variable} = {self.inplugs["From"].variable} - {self.inplugs["What"].variable}'
+        return f'float {self.outplugs["Result"].variable} = {self.inplugs["From"].variable} {self.inplugs["Operator"].value} {self.inplugs["What"].variable}'
         
 class AddColorNode(Node):
     def __init__(self):
@@ -311,7 +312,7 @@ node_classes = {
             'Vec4 to Color': Vec4ToColorNode,
             'Frag Coords': FragCoordNode,
             'Divide': DivideNode,
-            'Subtract': SubtractNode,
+            'Operator (II)': OperatorNode,
             'Smooth Step': SmoothStepNode,
             'Plot Line': PlotNode,
             'Add Color': AddColorNode,
