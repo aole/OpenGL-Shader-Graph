@@ -236,12 +236,6 @@ class AddColorNode(Node):
     def customCode(self, name):
         return f'vec4 {self.outplugs["Result"].variable} = {self.inplugs["Color1"].variable} + {self.inplugs["Color2"].variable}'
         
-class SolidColorNode(Node):
-    def __init__(self):
-        super().__init__('Solid Color')
-        
-        self.addOutPlug( Plug('Color', self, 'vec4', 'color', ColorValue((.1, .3, .7, 1))) )
-        
 class SmoothStepNode(Node):
     def __init__(self):
         super().__init__('Smooth Step')
@@ -304,7 +298,6 @@ class FragmentShaderNode(Node):
         self.outplugs['gl_FragColor'] = Plug('gl_FragColor', self, '', 'gl_FragColor', self.inplugs['Color'], False, False, inParam=False)
         
 node_classes = {
-            'Solid Color': SolidColorNode,
             'Invert Color': InvertColorNode,
             'Scale Node': ScaleNode,
             'Random Color': UniformRandomColorNode,

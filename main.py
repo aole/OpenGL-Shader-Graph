@@ -18,6 +18,9 @@ from shadergraph import Plug, ColorValue, FloatValue, StringValue
 
 UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
 
+PLUG_CIRCLE_RADIUS = 4
+PLUG_CIRCLE_SIZE = PLUG_CIRCLE_RADIUS * 2
+
 REALTIME = True
 
 __author__ = 'Bhupendra Aole'
@@ -312,8 +315,11 @@ class GraphWindow( wx.Panel ):
         
         self.BLACK_BRUSH = wx.Brush(wx.Colour(0,0,0))
         self.GRAY_BRUSH_200 = wx.Brush(wx.Colour(200,200,200))
+        self.GRAY_BRUSH_250 = wx.Brush(wx.Colour(250,250,250))
+        self.GRAY_BRUSH_100 = wx.Brush(wx.Colour(100,100,100))
         self.BLACK_BRUSH_100 = wx.Brush(wx.Colour(0,0,0,100))
         self.RED_BRUSH = wx.Brush(wx.Colour(255,0,0))
+        
         self.BLACK_PEN = wx.Pen(wx.Colour(0,0,0))
         self.GRAY_PEN_100 = wx.Pen(wx.Colour(100,100,100))
         self.GRAY_PEN_150 = wx.Pen(wx.Colour(150,150,150))
@@ -342,6 +348,8 @@ class GraphWindow( wx.Panel ):
         self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.Bind(wx.EVT_MOTION, self.OnMouseMotion)
 
+        self.font = self.GetFont()
+        
         #POPUP MENU
         self.popupMenu = wx.Menu()
         for idx, nodename in enumerate(NodeFactory.getNodeNames()):
@@ -359,34 +367,40 @@ class GraphWindow( wx.Panel ):
         dc = wx.AutoBufferedPaintDC(self)
         dc.Clear()
         
+        gc = wx.GraphicsContext.Create(dc)
+        gc.SetFont(self.font, wx.Colour(0,0,0))
+        
         # paint background
-        w, h = dc.GetSize().Get()
+        w, h = gc.GetSize()
+        w, h = int(w), int(h)
+        
         gridsize = 50
         # draw border
-        dc.SetBrush(self.GRAY_BRUSH_200)
-        dc.DrawRectangle(0,0,w,h)
-        # draw secondary axis lines
-        dc.SetPen(self.GRAY_PEN_150)
-        for x in range(int(w/2+self.panx)%gridsize,w-1,gridsize):
-            dc.DrawLine(x, 0, x, h)
-        for y in range(int(h/2+self.pany)%gridsize,h-1,gridsize):
-            dc.DrawLine(0, y, w, y)
-        # draw main axis lines (horizontal and vertical)
-        dc.SetPen(self.GRAY_PEN_100)
-        dc.DrawLine(0, h/2+self.pany, w, h/2+self.pany)
-        dc.DrawLine(w/2+self.panx, 0, w/2+self.panx, h)
+        gc.SetBrush(self.GRAY_BRUSH_200)
+        gc.DrawRectangle(0,0,w,h)
         
-        self.TXT4WIDTH, self.TXTHEIGHT = dc.GetTextExtent('TEXT')
+        # draw secondary axis lines
+        gc.SetPen(self.GRAY_PEN_150)
+        for x in range(int(w/2+self.panx)%gridsize,w-1,gridsize):
+            gc.StrokeLine(x, 0, x, h)
+        for y in range(int(h/2+self.pany)%gridsize,h-1,gridsize):
+            gc.StrokeLine(0, y, w, y)
+        # draw main axis lines (horizontal and vertical)
+        gc.SetPen(self.GRAY_PEN_100)
+        gc.StrokeLine(0, h/2+self.pany, w, h/2+self.pany)
+        gc.StrokeLine(w/2+self.panx, 0, w/2+self.panx, h)
+        
+        self.TXT4WIDTH, self.TXTHEIGHT = gc.GetTextExtent('TEXT')
         
         if self.graph:
             for node in self.graph.nodes:
                 locx, locy = node.location[0]+self.panx, node.location[1]+self.pany
-                dc.SetPen(self.BLACK_PEN)
-                dc.SetBrush(wx.NullBrush)
+                gc.SetPen(self.BLACK_PEN)
+                gc.SetBrush(wx.NullBrush)
                 
                 # get max name length
                 nodename = node.name
-                txtwidth, txtheight = dc.GetTextExtent(nodename)
+                txtwidth, txtheight = gc.GetTextExtent(nodename)
                 
                 plugcount = 0
                 for key, plug in {**node.outplugs, **node.inplugs}.items():
@@ -395,20 +409,21 @@ class GraphWindow( wx.Panel ):
                         
                     plugcount += 1
                     name = str(key)
-                    w, h = dc.GetTextExtent(name)
+                    w, h = gc.GetTextExtent(name)
                     if w > txtwidth:
                         txtwidth = w
                 
                 # print name
-                #dc.SetBrush(self.GRAY_BRUSH_200)
-                dc.DrawRoundedRectangle(locx, locy, txtwidth+4+15, txtheight+4, 3)
-                dc.DrawText(nodename, locx+2, locy+2)
+                gc.SetBrush(self.GRAY_BRUSH_250)
+                gc.DrawRoundedRectangle(locx, locy, txtwidth+4+15, txtheight+4, 3)
+                
+                gc.DrawText(nodename, locx+2, locy+2)
                 if node.can_delete:
-                    dc.DrawText('X', locx+txtwidth+4+6, locy+2)
+                    gc.DrawText('X', locx+txtwidth+4+6, locy+2)
             
                 # print body
                 bodyh = plugcount * (txtheight+4)
-                dc.DrawRoundedRectangle(locx, locy+txtheight+4, txtwidth+4+15, bodyh, 3)
+                gc.DrawRoundedRectangle(locx, locy+txtheight+4, txtwidth+4+15, bodyh, 3)
 
                 #if node not in self.nodeRects:
                 self.nodeRects[node] = [locx, locy, txtwidth+4+15, txtheight+4+bodyh]
@@ -421,15 +436,15 @@ class GraphWindow( wx.Panel ):
                         
                     y += 2
                     name = str(key)
-                    w, h = dc.GetTextExtent(name)
+                    w, h = gc.GetTextExtent(name)
                     
-                    dc.SetPen(self.BLACK_PEN)
-                    dc.DrawText(name, locx+2 + (txtwidth+11-w), y)
+                    gc.SetPen(self.BLACK_PEN)
+                    gc.DrawText(name, locx+2 + (txtwidth+11-w), y)
                     
                     if plug==self.selected_plug or plug==self.selected_plug2:
-                        dc.SetPen(self.RED_PEN)
+                        gc.SetPen(self.RED_PEN)
                         
-                    dc.DrawCircle(locx+2+txtwidth+6+10, y+h/2, 3)
+                    gc.DrawEllipse(locx+2+txtwidth+6+10-PLUG_CIRCLE_RADIUS, y+h/2-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
                     self.pluglocation[plug] = (locx+2+txtwidth+6+10, y+h/2)
                     y += txtheight
                     
@@ -440,34 +455,35 @@ class GraphWindow( wx.Panel ):
                         
                     y += 2
                     name = str(key)
-                    w, h = dc.GetTextExtent(name)
+                    w, h = gc.GetTextExtent(name)
                     
-                    dc.SetPen(self.BLACK_PEN)
+                    gc.SetPen(self.BLACK_PEN)
                     # draw plug inputs
                     if isinstance(plug.value, ColorValue):
                         COLOR_BRUSH = wx.Brush(wx.Colour(*plug.value.GetColorInt()))
-                        dc.SetBrush(COLOR_BRUSH)
-                        dc.DrawRoundedRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH, self.TXTHEIGHT, 3)
-                        dc.SetBrush(wx.NullBrush)
+                        gc.SetBrush(COLOR_BRUSH)
+                        gc.DrawRoundedRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH, self.TXTHEIGHT, 3)
+                        gc.SetBrush(wx.NullBrush)
                     elif isinstance(plug.value, FloatValue):
-                        dc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH, self.TXTHEIGHT)
-                        dc.DrawText(plug.value.GetFloat(), locx+self.PLUGVALUEGAP+3, y)
+                        gc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH, self.TXTHEIGHT)
+                        gc.DrawText(plug.value.GetFloat(), locx+self.PLUGVALUEGAP+3, y)
                     elif isinstance(plug.value, StringValue):
-                        dc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH*2, self.TXTHEIGHT)
-                        dc.DrawText(plug.value.value, locx+self.PLUGVALUEGAP+3, y)
+                        gc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH*2, self.TXTHEIGHT)
+                        gc.DrawText(plug.value.value, locx+self.PLUGVALUEGAP+3, y)
                     else:
-                        dc.DrawText(name, locx+self.PLUGVALUEGAP, y)
+                        gc.DrawText(name, locx+self.PLUGVALUEGAP, y)
                     
+                    gc.SetBrush(self.GRAY_BRUSH_250)
                     # draw plug circle
                     if plug==self.selected_plug or plug==self.selected_plug2:
-                        dc.SetPen(self.RED_PEN)
+                        gc.SetPen(self.RED_PEN)
                    
-                    dc.DrawCircle(locx, y+h/2, 3)
+                    gc.DrawEllipse(locx-PLUG_CIRCLE_RADIUS, y+h/2-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
                     self.pluglocation[plug] = (locx, y+h/2)
                     y += txtheight
                     
             # draw connections
-            dc.SetPen(self.BLACK_PEN)
+            gc.SetPen(self.BLACK_PEN)
             for node in self.graph.nodes:
                 for plug in node.inplugs.values():
                     if not plug.display:
@@ -475,25 +491,37 @@ class GraphWindow( wx.Panel ):
                         
                     x1, y1 = self.pluglocation[plug]
                     if isinstance(plug, Plug) and plug.value.parent and plug.value.parent!= node:
+                        path = gc.CreatePath()
                         x2, y2 = self.pluglocation[plug.value]
-                        dc.DrawLine(x1, y1, x2, y2)
+                        path.MoveToPoint(x1, y1)
+                        path.AddCurveToPoint(x1-50, y1, x2+50, y2, x2, y2)
+                        gc.StrokePath(path)
                         
-                        dc.SetBrush(self.BLACK_BRUSH)
+                        gc.SetBrush(self.BLACK_BRUSH)
                         if plug == self.selected_plug or plug == self.selected_plug2:
-                            dc.SetBrush(self.RED_BRUSH)
-                        dc.DrawCircle(x1, y1, 3)
+                            gc.SetBrush(self.RED_BRUSH)
+                        gc.DrawEllipse(x1-PLUG_CIRCLE_RADIUS, y1-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
                         
-                        dc.SetBrush(self.BLACK_BRUSH)
+                        gc.SetBrush(self.BLACK_BRUSH)
                         if plug.value == self.selected_plug or plug.value == self.selected_plug2:
-                            dc.SetBrush(self.RED_BRUSH)
-                        dc.DrawCircle(x2, y2, 3)
+                            gc.SetBrush(self.RED_BRUSH)
+                        gc.DrawEllipse(x2-PLUG_CIRCLE_RADIUS, y2-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
                         
             # hovered plug
-            if self.selected_plug:
+            if self.selected_plug and self.left_down:
                 x1, y1 = self.pluglocation[self.selected_plug]
                 x2, y2 = self.ScreenToClient(wx.GetMousePosition())
-                dc.DrawLine(x1, y1, x2, y2)
                 
+                if abs(x1-x2)>PLUG_CIRCLE_RADIUS or abs(y1-y2)>PLUG_CIRCLE_RADIUS:
+                    if self.selected_plug.inParam:
+                        x1, x2 = x2, x1
+                        y1, y2 = y2, y1
+                        
+                    path = gc.CreatePath()
+                    path.MoveToPoint(x1, y1)
+                    path.AddCurveToPoint(x1+50, y1, x2-50, y2, x2, y2)
+                    gc.StrokePath(path)
+        
     def OnAddNode(self, event):
         node = NodeFactory.getNewNode(event.GetEventObject().GetLabelText(event.GetId()))
         node.location = self.popupCoords
@@ -516,37 +544,38 @@ class GraphWindow( wx.Panel ):
     def OnMouseMotion(self, event):
         x, y = event.GetPosition()
         dx, dy = x-self.lastx, y-self.lasty
+        
         if self.middle_down:
             self.panx += dx
             self.pany += dy
         else:
-            if not self.selected_plug:
+            if self.selected_plug and self.left_down: # find 2nd plug
+                self.selected_plug2 = None
+                for plug, loc in self.pluglocation.items():
+                    lx, ly = loc
+                    if x>=lx-PLUG_CIRCLE_RADIUS and x<=lx+PLUG_CIRCLE_RADIUS and y>=ly-PLUG_CIRCLE_RADIUS and y<=ly+PLUG_CIRCLE_RADIUS:
+                        if self.selected_plug != plug:
+                            self.selected_plug2 = plug
+                        break
+            elif self.selected_node and self.left_down: # move node
+                self.selected_node.location[0] += x - self.lastx
+                self.selected_node.location[1] += y - self.lasty
+            elif not self.left_down: # find node/ 1st plug
                 self.selected_node = None
-                for node, r in self.nodeRects.items():
-                    if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
-                        self.selected_node = node
-                        
-            self.selected_plug2 = None
-            found = False
-            for plug, loc in self.pluglocation.items():
-                lx, ly = loc
-                if x>=lx-3 and x<=lx+3 and y>=ly-3 and y<=ly+3:
-                    if self.left_down and self.selected_plug and self.selected_plug != plug:
-                        self.selected_plug2 = plug
-                        found = True
-                    elif not self.left_down:
+                self.selected_plug = None
+                self.selected_plug2 = None
+                found = False
+                for plug, loc in self.pluglocation.items():
+                    lx, ly = loc
+                    if x>=lx-PLUG_CIRCLE_RADIUS and x<=lx+PLUG_CIRCLE_RADIUS and y>=ly-PLUG_CIRCLE_RADIUS and y<=ly+PLUG_CIRCLE_RADIUS:
                         self.selected_plug = plug
                         found = True
-                    break
-                    
-            if not found and not self.left_down:
-                self.selected_plug = None
-                
-            if self.left_down:
-                if self.selected_node:
-                    self.selected_node.location[0] += x - self.lastx
-                    self.selected_node.location[1] += y - self.lasty
-                    
+                        break
+                if not found: # if no plug found
+                    for node, r in self.nodeRects.items():
+                        if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
+                            self.selected_node = node
+                            break
         self.Refresh()
         self.lastx, self.lasty = x, y
         
@@ -607,16 +636,12 @@ class GraphWindow( wx.Panel ):
     def OnLeftDown(self, event):
         x, y = event.GetPosition()
         
-        self.selected_node = None
-        if not self.selected_plug:
-            for node, r in self.nodeRects.items():
-                if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
-                    # check if X is clicked
-                    if node.can_delete and x>r[0]+r[2]-10 and y<r[1]+10:
-                        self.removeNode(node)
-                        break
-                    else:
-                        self.selected_node = node
+        if self.selected_node and not self.selected_plug:
+            r = self.nodeRects[self.selected_node]
+            # check if X is clicked
+            if self.selected_node.can_delete and x>(r[0]+r[2])-20 and y<r[1]+20:
+                self.removeNode(self.selected_node)
+        
         elif self.selected_plug and wx.GetKeyState(wx.WXK_CONTROL) and self.selected_plug.inParam:
             self.selected_plug.setDefaultValue()
             self.graph.requires_compilation = True
