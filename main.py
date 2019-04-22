@@ -1,8 +1,9 @@
-import wx
+import math
 import numpy as np
-import time
-import random
 import pickle
+import random
+import time
+import wx
 
 from wx import glcanvas
 
@@ -186,11 +187,14 @@ class GLFrame( glcanvas.GLCanvas ):
             self.timer.Start(1000/60)    # 1 second interval
         
     def compileBGShaders(self):
-        VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
-        FRAGMENT_SHADER = shaders.compileShader( fragmentBGShader, GL_FRAGMENT_SHADER )
-        
-        self.bgshader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
-    
+        try:
+            VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
+            FRAGMENT_SHADER = shaders.compileShader( fragmentBGShader, GL_FRAGMENT_SHADER )
+            
+            self.bgshader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
+        except Exception as err:
+            print(err)
+            
     def generateCode( self ):
         code = ""
         globalcode = ""
@@ -211,20 +215,26 @@ class GLFrame( glcanvas.GLCanvas ):
         return fragmentShader
         
     def compileShaders(self):
-        VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
+        try:
+            VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
         
-        # Fragment Shader
-        fragmentShader = self.generateCode()
-        
-        print('====================')
-        print(fragmentShader)
-        print('====================')
-        FRAGMENT_SHADER = shaders.compileShader( fragmentShader, GL_FRAGMENT_SHADER )
-        
-        self.shader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
+            # Fragment Shader
+            fragmentShader = self.generateCode()
+            
+            print('====================')
+            print(fragmentShader)
+            print('====================')
+            FRAGMENT_SHADER = shaders.compileShader( fragmentShader, GL_FRAGMENT_SHADER )
+            
+            self.shader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
 
-        self.graph.requires_compilation = False
-        
+            self.graph.requires_compilation = False
+            self.graph.in_error = False
+        except Exception as err:
+            self.graph.requires_compilation = False
+            self.graph.in_error = True
+            print(err)
+            
     def OnReshape( self, width, height ):
         """Reshape the OpenGL viewport based on the dimensions of the window."""
         glViewport( 0, 0, width, height )
@@ -306,25 +316,30 @@ class GraphWindow( wx.Panel ):
         self.pluglocation = {}
         self.left_down = False
         self.middle_down = False
-        self.selected_node = None
-        self.selected_plug = None
-        self.selected_plug2 = None
         self.lastx = self.lasty = 0
         self.panx = self.pany = 0
         self.popupCoords = (0,0)
         
+        self.hovered_node = None
+        self.selected_node = None
+        self.selected_plug = None
+        self.selected_plug2 = None
+        
         self.BLACK_BRUSH = wx.Brush(wx.Colour(0,0,0))
+        self.TGRAY_BRUSH_100 = wx.Brush(wx.Colour(100,100,100, 200))
         self.GRAY_BRUSH_200 = wx.Brush(wx.Colour(200,200,200))
         self.GRAY_BRUSH_250 = wx.Brush(wx.Colour(250,250,250))
         self.GRAY_BRUSH_100 = wx.Brush(wx.Colour(100,100,100))
         self.BLACK_BRUSH_100 = wx.Brush(wx.Colour(0,0,0,100))
         self.RED_BRUSH = wx.Brush(wx.Colour(255,0,0))
+        self.ERROR_BRUSH = wx.Brush(wx.Colour(200,100,100))
         
         self.BLACK_PEN = wx.Pen(wx.Colour(0,0,0))
         self.GRAY_PEN_100 = wx.Pen(wx.Colour(100,100,100))
         self.GRAY_PEN_150 = wx.Pen(wx.Colour(150,150,150))
         self.GRAY_PEN_200 = wx.Pen(wx.Colour(200,200,200))
         self.RED_PEN = wx.Pen(wx.Colour(255,0,0))
+        self.ERROR_PEN = wx.Pen(wx.Colour(200,100,100),10)
         
         self.PLUGVALUEGAP = 6
         self.TXT4WIDTH, self.TXTHEIGHT = 0,0
@@ -338,15 +353,15 @@ class GraphWindow( wx.Panel ):
         self.InitUI()
 
     def InitUI(self):
-        self.Bind(wx.EVT_PAINT, self.OnPaint)
         self.Bind(wx.EVT_ERASE_BACKGROUND, self.OnEraseBackground)
-        self.Bind(wx.EVT_SIZE, self.OnSize)
-        self.Bind(wx.EVT_RIGHT_DOWN, self.OnRightDown)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
+        self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.Bind(wx.EVT_MIDDLE_DOWN, self.OnMiddleDown)
         self.Bind(wx.EVT_MIDDLE_UP, self.OnMiddleUp)
-        self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.Bind(wx.EVT_MOTION, self.OnMouseMotion)
+        self.Bind(wx.EVT_PAINT, self.OnPaint)
+        self.Bind(wx.EVT_RIGHT_DOWN, self.OnRightDown)
+        self.Bind(wx.EVT_SIZE, self.OnSize)
 
         self.font = self.GetFont()
         
@@ -376,6 +391,9 @@ class GraphWindow( wx.Panel ):
         
         gridsize = 50
         # draw border
+        if self.graph.in_error:
+            gc.SetPen(self.ERROR_PEN)
+            
         gc.SetBrush(self.GRAY_BRUSH_200)
         gc.DrawRectangle(0,0,w,h)
         
@@ -413,6 +431,14 @@ class GraphWindow( wx.Panel ):
                     if w > txtwidth:
                         txtwidth = w
                 
+                bodyh = plugcount * (txtheight+4)
+                # draw Selection indication
+                if node == self.selected_node:
+                    gc.SetPen(wx.NullPen)
+                    gc.SetBrush(self.TGRAY_BRUSH_100)
+                    gc.DrawRoundedRectangle(locx-3, locy-3, txtwidth+4+15+7, txtheight+4+bodyh+7, 3)
+                    
+                gc.SetPen(self.BLACK_PEN)
                 # print name
                 gc.SetBrush(self.GRAY_BRUSH_250)
                 gc.DrawRoundedRectangle(locx, locy, txtwidth+4+15, txtheight+4, 3)
@@ -422,7 +448,6 @@ class GraphWindow( wx.Panel ):
                     gc.DrawText('X', locx+txtwidth+4+6, locy+2)
             
                 # print body
-                bodyh = plugcount * (txtheight+4)
                 gc.DrawRoundedRectangle(locx, locy+txtheight+4, txtwidth+4+15, bodyh, 3)
 
                 #if node not in self.nodeRects:
@@ -494,7 +519,8 @@ class GraphWindow( wx.Panel ):
                         path = gc.CreatePath()
                         x2, y2 = self.pluglocation[plug.value]
                         path.MoveToPoint(x1, y1)
-                        path.AddCurveToPoint(x1-50, y1, x2+50, y2, x2, y2)
+                        ctx = min(50, math.sqrt((x1-x2)**2+(y1-y2)**2))
+                        path.AddCurveToPoint(x1-ctx, y1, x2+ctx, y2, x2, y2)
                         gc.StrokePath(path)
                         
                         gc.SetBrush(self.BLACK_BRUSH)
@@ -519,14 +545,17 @@ class GraphWindow( wx.Panel ):
                         
                     path = gc.CreatePath()
                     path.MoveToPoint(x1, y1)
-                    path.AddCurveToPoint(x1+50, y1, x2-50, y2, x2, y2)
+                    ctx = min(50, math.sqrt((x1-x2)**2+(y1-y2)**2))
+                    path.AddCurveToPoint(x1+ctx, y1, x2-ctx, y2, x2, y2)
                     gc.StrokePath(path)
         
     def OnAddNode(self, event):
         node = NodeFactory.getNewNode(event.GetEventObject().GetLabelText(event.GetId()))
         node.location = self.popupCoords
+        self.selected_node = node
         self.graph.nodes.append(node)
         self.graph.requires_compilation = True
+        self.Refresh()
         
     def OnSize(self, e):
         self.Refresh()
@@ -538,6 +567,10 @@ class GraphWindow( wx.Panel ):
         self.middle_down = False
         
     def OnRightDown(self, event):
+        self.selected_node = None
+        if self.hovered_node:
+            self.selected_node = self.hovered_node
+            
         self.popupCoords = event.GetPosition() - (self.panx, self.pany)
         self.PopupMenu( self.popupMenu, event.GetPosition() )
 
@@ -557,11 +590,11 @@ class GraphWindow( wx.Panel ):
                         if self.selected_plug != plug:
                             self.selected_plug2 = plug
                         break
-            elif self.selected_node and self.left_down: # move node
-                self.selected_node.location[0] += x - self.lastx
-                self.selected_node.location[1] += y - self.lasty
+            elif self.hovered_node and self.left_down: # move node
+                self.hovered_node.location[0] += x - self.lastx
+                self.hovered_node.location[1] += y - self.lasty
             elif not self.left_down: # find node/ 1st plug
-                self.selected_node = None
+                self.hovered_node = None
                 self.selected_plug = None
                 self.selected_plug2 = None
                 found = False
@@ -574,7 +607,7 @@ class GraphWindow( wx.Panel ):
                 if not found: # if no plug found
                     for node, r in self.nodeRects.items():
                         if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
-                            self.selected_node = node
+                            self.hovered_node = node
                             break
         self.Refresh()
         self.lastx, self.lasty = x, y
@@ -616,9 +649,9 @@ class GraphWindow( wx.Panel ):
                 self.graph.requires_compilation = True
             
         # activate plug input
-        if not self.selected_plug and self.selected_node:
+        if not self.selected_plug and self.hovered_node:
             for plug, loc in self.pluglocation.items():
-                if plug.parent != self.selected_node:
+                if plug.parent != self.hovered_node:
                     continue
                 lx, ly = loc
                 # input plugs on the left side
@@ -630,32 +663,45 @@ class GraphWindow( wx.Panel ):
                     self.triggerPlugInput(plug)
                     break
                     
-        self.selected_plug = self.selected_plug2 = self.selected_node = None
+        self.selected_plug = self.selected_plug2 = self.hovered_node = None
         self.Refresh()
         
     def OnLeftDown(self, event):
         x, y = event.GetPosition()
         
-        if self.selected_node and not self.selected_plug:
-            r = self.nodeRects[self.selected_node]
-            # check if X is clicked
-            if self.selected_node.can_delete and x>(r[0]+r[2])-20 and y<r[1]+20:
-                self.removeNode(self.selected_node)
+        self.selected_node = None
+        if self.hovered_node:
+            self.selected_node = self.hovered_node
+            if not self.selected_plug:
+                r = self.nodeRects[self.hovered_node]
+                # check if X is clicked
+                if self.hovered_node.can_delete and x>(r[0]+r[2])-20 and y<r[1]+20:
+                    self.removeNode(self.hovered_node)
         
         elif self.selected_plug and wx.GetKeyState(wx.WXK_CONTROL) and self.selected_plug.inParam:
             self.selected_plug.setDefaultValue()
             self.graph.requires_compilation = True
+        elif self.selected_plug:
+            self.selected_node = self.selected_plug.parent
             
         self.left_down = True
         self.lastx, self.lasty = x, y
         self.Refresh()
-        
+    
+    def deleteSelectedNode(self):
+        if self.selected_node:
+            self.removeNode(self.selected_node)
+            
     def removeNode(self, node):
+        if not node.can_delete:
+            return
+            
         self.graph.removeNode(node)
         del self.nodeRects[node]
-        self.selected_node = None
+        self.hovered_node = self.selected_node = None
         self.selected_plug = self.selected_plug2 = None
         self.graph.requires_compilation = True
+        self.Refresh()
         
 class Window( wx.Frame ):
     def __init__( self, *args, **kwargs ):
@@ -666,6 +712,8 @@ class Window( wx.Frame ):
         self.initUI()
     
     def initUI( self ):
+        self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
+        
         # MENU
         fmenu = wx.Menu()
         
@@ -716,9 +764,16 @@ class Window( wx.Frame ):
         # MIN SIZE to avoid GL error
         self.SetSizeHints(200,100,-1,-1)
         
+        self.SetFocus()
         # SHOW
         self.Show()
     
+    def OnKeyDown(self, event):
+        keycode = event.GetKeyCode()
+        
+        if keycode == wx.WXK_DELETE:
+            self.graphPanel.deleteSelectedNode()
+        
     def OnTabChanged( self, event ):
         self.codePanel.SetValue(self.glwindow.generateCode())
         
