@@ -1,10 +1,12 @@
 import math
 import numpy as np
 import pickle
+import pyrr
 import random
 import time
 import wx
 
+from utils import ortho, perspective, translate, rotate
 from wx import glcanvas
 
 from OpenGL.GL import *
@@ -28,28 +30,36 @@ __author__ = 'Bhupendra Aole'
 __version__ = '0.1.0'
 
 vertexShader = """
-    #version 120
+    #version 330
+    
+    uniform mat4 MVP;
+    layout(location = 0) in vec3 Vertex;
     
     void main() {
-        gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+        gl_Position = MVP * vec4( Vertex, 1 );
     }
     """
 
 fragmentBGShader = """
     #version 330
     
+    out vec4 sg_FragColor;
+    
     void main() {
         vec2 d = gl_FragCoord.xy/30;
-        if(mod(int(d.x),2)==mod(int(d.y),2)) {
-            gl_FragColor = vec4( .7, .7, .7, 1 );
+        if( mod(int(d.x),2) == mod(int(d.y), 2) ) {
+            sg_FragColor = vec4( .7, .7, .7, 1 );
         }
         else {
-            gl_FragColor = vec4( .3, .3, .3, 1 );
+            sg_FragColor = vec4( .3, .3, .3, 1 );
         }
     }
     """
 
-custom_nodes = {'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2','self.GetGLExtents()', glUniform2f), 'sg_Time':('Time', [('time', 'float', 'sg_Time')], 'float','[time.clock()]', glUniform1f)}
+custom_nodes = {
+    'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2','self.GetGLExtents()', glUniform2f),
+    'sg_Time':('Time', [('time', 'float', 'sg_Time')], 'float','[time.clock()]', glUniform1f)
+}
 
 class GLFrame( glcanvas.GLCanvas ):
     """A simple class for using OpenGL with wxPython."""
@@ -156,7 +166,7 @@ class GLFrame( glcanvas.GLCanvas ):
         if self.graph.requires_compilation:
             self.compileShaders()
             
-        self.OnDraw()
+        self.OnPaintGL()
         event.Skip()
 
     #
@@ -199,7 +209,7 @@ class GLFrame( glcanvas.GLCanvas ):
         code = ""
         globalcode = ""
         self.graph.prepare()
-        code, globalcode = self.graph.nodes[0].generateCode('gl_FragColor', code, globalcode)
+        code, globalcode = self.graph.nodes[0].generateCode('Pixel Color', code, globalcode)
         
         fragmentShader = "#version 330\n\n"
         
@@ -245,22 +255,16 @@ class GLFrame( glcanvas.GLCanvas ):
                 self.bgvbo.delete()
             self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
         
-    def OnDraw( self ):
+    def OnPaintGL( self ):
         glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
 
         width, height = self.GetGLExtents()
         
-        # draw background
-        glMatrixMode( GL_PROJECTION )
-        glLoadIdentity()
-        glOrtho( 0,width, 0, height, -1, 1 )
-        
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity()
-        
-        glPushMatrix()
+        MVP = ortho( 0,width, 0, height, -1, 1 )
         
         shaders.glUseProgram( self.bgshader )
+        
+        glUniformMatrix4fv( glGetUniformLocation(self.shader, 'MVP'), 1, True, MVP )
         
         self.bgvbo.bind()
         glEnableClientState( GL_VERTEX_ARRAY );
@@ -271,22 +275,15 @@ class GLFrame( glcanvas.GLCanvas ):
         self.bgvbo.unbind()
         glDisableClientState( GL_VERTEX_ARRAY );
         
-        glPopMatrix()
+        MVP = perspective(45.0, width / height, self.near_plane, self.far_plane);
         
-        # draw foreground
-        glMatrixMode( GL_PROJECTION )
-        glLoadIdentity()
-        gluPerspective( 45.0, width/height, self.near_plane, self.far_plane )
-
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
-
-        glPushMatrix()
-        glTranslate( self.world_pos[0], self.world_pos[1], self.world_pos[2] )
-        glRotated( self.world_rot[1], 0, 1, 0 )
-        glRotated( self.world_rot[0], 1, 0, 0 )
+        MVP = translate( MVP, self.world_pos[0], self.world_pos[1], self.world_pos[2] )
+        MVP = rotate( MVP, self.world_rot[1], 0, 1, 0 )
+        MVP = rotate( MVP, self.world_rot[0], 1, 0, 0 )
         
         shaders.glUseProgram( self.shader )
+        
+        glUniformMatrix4fv( glGetUniformLocation(self.shader, 'MVP'), 1, True, MVP )
         
         self.fgvbo.bind()
         glEnableClientState( GL_VERTEX_ARRAY );
@@ -302,8 +299,6 @@ class GLFrame( glcanvas.GLCanvas ):
         self.fgvbo.unbind()
         glDisableClientState( GL_VERTEX_ARRAY );
         shaders.glUseProgram( 0 )
-        
-        glPopMatrix()
         
         self.SwapBuffers()
         
@@ -411,7 +406,8 @@ class GraphWindow( wx.Panel ):
         self.TXT4WIDTH, self.TXTHEIGHT = gc.GetTextExtent('TEXT')
         
         if self.graph:
-            for node in self.graph.nodes:
+            # reversed for correctly mouse picking top (z order) node.
+            for node in reversed(self.graph.nodes):
                 locx, locy = node.location[0]+self.panx, node.location[1]+self.pany
                 gc.SetPen(self.BLACK_PEN)
                 gc.SetBrush(wx.NullBrush)
@@ -498,20 +494,23 @@ class GraphWindow( wx.Panel ):
                     else:
                         gc.DrawText(name, locx+self.PLUGVALUEGAP, y)
                     
-                    gc.SetBrush(self.GRAY_BRUSH_250)
-                    # draw plug circle
-                    if plug==self.selected_plug or plug==self.selected_plug2:
-                        gc.SetPen(self.RED_PEN)
-                   
-                    gc.DrawEllipse(locx-PLUG_CIRCLE_RADIUS, y+h/2-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
+                    if not plug.internal:
+                        gc.SetBrush(self.GRAY_BRUSH_250)
+                        # draw plug circle
+                        if plug==self.selected_plug or plug==self.selected_plug2:
+                            gc.SetPen(self.RED_PEN)
+                       
+                        gc.DrawEllipse(locx-PLUG_CIRCLE_RADIUS, y+h/2-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
+                        
                     self.pluglocation[plug] = (locx, y+h/2)
+                        
                     y += txtheight
                     
             # draw connections
             gc.SetPen(self.BLACK_PEN)
             for node in self.graph.nodes:
                 for plug in node.inplugs.values():
-                    if not plug.display:
+                    if not plug.display or plug.internal:
                         continue
                         
                     x1, y1 = self.pluglocation[plug]

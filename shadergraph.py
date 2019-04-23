@@ -2,7 +2,7 @@ import random
 
 class Plug:
     count = 1
-    def __init__(self, name, parent, type, variable, value, generate_variable=True, display=True, inParam=True, declare_variable=True):
+    def __init__(self, name, parent, type, variable, value, generate_variable=True, display=True, inParam=True, declare_variable=True, internal = False):
         self.name = name
         self.parent = parent
         self.type = type
@@ -13,7 +13,7 @@ class Plug:
         self.declared = False
         self.declare_variable = declare_variable
         self.editable = True
-        self.in_error = False
+        self.internal = internal
         
         if generate_variable:
             self.variable += str(Plug.count)
@@ -62,7 +62,7 @@ class ColorValue(Value):
         return (self.color[0]*255, self.color[1]*255, self.color[2]*255, self.color[3]*255)
     
     def SetColorInt(self, r, g, b):
-        self.color = (r/255.0, g/255.0, b/255.0, 1.0)
+        self.color = (round(r/255.0,3), round(g/255.0,3), round(b/255.0,3), 1.0)
         
 class FloatValue(Value):
     def __init__(self, value=1):
@@ -112,7 +112,14 @@ class Node:
     def __str__(self):
         return str(type(self))
         
+    def getGlobalCode(self):
+        return None
+        
     def generateCode(self, name, code, globalcode):
+        gc = self.getGlobalCode()
+        if gc:
+            globalcode += gc
+            
         for plugname, plug in self.inplugs.items():
             if isinstance(plug.value, Plug) and plug.value.parent!=self:
                 if isinstance(plug.value.parent, UniformNode):
@@ -218,7 +225,7 @@ class OperatorNode(Node):
     def __init__(self):
         super().__init__('Operator (II)')
         
-        self.addInPlug( Plug('Operator', self, 'float', 'o', StringValue('+'), declare_variable=False) )
+        self.addInPlug( Plug('Operator', self, 'float', 'o', StringValue('+'), declare_variable=False, internal = True) )
         self.addInPlug(Plug('From', self, 'float', 'sa', FloatValue()))
         self.addInPlug(Plug('What', self, 'float', 'sb', FloatValue()))
         self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
@@ -264,8 +271,8 @@ class FunctionINode(Node):
     def __init__(self):
         super().__init__('Function (I)')
         
-        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('sin'), declare_variable=False) )
-        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('float'), declare_variable=False) )
+        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('sin'), declare_variable=False, internal = True) )
+        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('float'), declare_variable=False, internal = True) )
         self.addInPlug( Plug('Param', self, 'float', 'p', FloatValue()) )
         self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
         
@@ -276,8 +283,8 @@ class FunctionIINode(Node):
     def __init__(self):
         super().__init__('Function (II)')
         
-        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('step'), declare_variable=False) )
-        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('float'), declare_variable=False) )
+        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('step'), declare_variable=False, internal = True) )
+        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('float'), declare_variable=False, internal = True) )
         self.addInPlug( Plug('Param1', self, 'float', 'pa', FloatValue()) )
         self.addInPlug( Plug('Param2', self, 'float', 'pb', FloatValue()) )
         self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
@@ -289,8 +296,8 @@ class FunctionIIINode(Node):
     def __init__(self):
         super().__init__('Function (III)')
         
-        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('vec3'), declare_variable=False) )
-        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('vec3'), declare_variable=False) )
+        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('vec3'), declare_variable=False, internal = True) )
+        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('vec3'), declare_variable=False, internal = True) )
         self.addInPlug( Plug('Param1', self, 'float', 'pa', FloatValue()) )
         self.addInPlug( Plug('Param2', self, 'float', 'pb', FloatValue()) )
         self.addInPlug( Plug('Param3', self, 'float', 'pc', FloatValue()) )
@@ -303,8 +310,8 @@ class FunctionIVNode(Node):
     def __init__(self):
         super().__init__('Function (IV)')
         
-        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('vec4'), declare_variable=False) )
-        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('vec4'), declare_variable=False) )
+        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('vec4'), declare_variable=False, internal = True) )
+        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('vec4'), declare_variable=False, internal = True) )
         self.addInPlug( Plug('Param1', self, 'float', 'pa', FloatValue()) )
         self.addInPlug( Plug('Param2', self, 'float', 'pb', FloatValue()) )
         self.addInPlug( Plug('Param3', self, 'float', 'pc', FloatValue()) )
@@ -327,7 +334,10 @@ class FragmentShaderNode(Node):
         super().__init__('Fragment Shader')
         
         self.inplugs['Color'] = Plug('Color', self, 'vec4', 'color', ColorValue())
-        self.outplugs['gl_FragColor'] = Plug('gl_FragColor', self, '', 'gl_FragColor', self.inplugs['Color'], False, False, inParam=False)
+        self.outplugs['Pixel Color'] = Plug('Pixel Color', self, '', 'sg_FragColor', self.inplugs['Color'], False, False, inParam=False)
+        
+    def getGlobalCode(self):
+        return 'out vec4 sg_FragColor;\n';
         
 node_classes = {
             'Invert Color': InvertColorNode,
@@ -378,6 +388,7 @@ class FragmentShaderGraph:
         self.nodes = [fsnode]
         self.requires_compilation = True
         self.uniforms = {}
+        self.in_error = False
         
     def removeNode(self, rnode):
         self.nodes.remove(rnode)
@@ -435,7 +446,7 @@ if __name__ == '__main__':
     code = ""
     globalcode = ""
     g.prepare()
-    code, globalcode = g.nodes[0].generateCode('gl_FragColor', code, globalcode)
+    code, globalcode = g.nodes[0].generateCode('Pixel Color', code, globalcode)
     print('===============')
     print(globalcode)
     print('---------------')
