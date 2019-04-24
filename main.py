@@ -29,14 +29,39 @@ REALTIME = True
 __author__ = 'Bhupendra Aole'
 __version__ = '0.1.0'
 
-vertexShader = """
+vertexBGShader = """
     #version 330
     
     uniform mat4 MVP;
+    
     layout(location = 0) in vec3 Vertex;
     
     void main() {
         gl_Position = MVP * vec4( Vertex, 1 );
+    }
+    """
+
+vertexFGShader = """
+    #version 330
+    
+    uniform mat4 MV;
+    uniform mat4 MVP;
+    uniform vec3 Light;
+    
+    layout(location = 1) in vec3 Vertex;
+    layout(location = 2) in vec3 Normal;
+    
+    varying vec4 baseColor;
+    
+    void main() {
+        vec4 vVertex = MV * vec4( Vertex, 1 );
+        gl_Position = MVP * vec4( Vertex, 1 );
+        
+        vec3 dir = normalize(Light - vVertex.xyz);
+        vec4 vNormal = transpose(inverse(MV)) * vec4(Normal,0);
+        
+        float dotp = max(0, dot(dir, normalize(vNormal.xyz)));
+        baseColor = clamp(vec4(vec3(1,1,1)*dotp,1), 0, 1);
     }
     """
 
@@ -133,26 +158,24 @@ class GLFrame( glcanvas.GLCanvas ):
             pos = event.GetPosition()
             diff = (pos-self.last_pos)
             self.world_rot = ( self.world_rot[0]+diff[1], self.world_rot[1]+diff[0], self.world_rot[2] )
-            # print(  )
+            
             self.last_pos = pos
             self.Refresh( False )
         
     def processWheelEvent( self, event ):
         delta = event.GetWheelRotation() / 100
         self.world_pos = ( self.world_pos[0], self.world_pos[1], self.world_pos[2]+delta )
-        #self.Refresh( False )
         
     def processEraseBackgroundEvent( self, event ):
         """Process the erase background event."""
         pass # Do nothing, to avoid flashing on MSWin
 
     def processSizeEvent( self, event ):
-        self.Show()
-        #self.SetCurrent( self.context )
+        self.SetCurrent( self.context )
 
         width, height = self.GetGLExtents()
         self.OnReshape( width, height )
-        #self.Refresh( False )
+        
         event.Skip()
 
     def processPaintEvent(self, event):
@@ -173,32 +196,98 @@ class GLFrame( glcanvas.GLCanvas ):
     # GLFrame OpenGL Event Handlers
 
     def OnInitGL(self):
-        """Initialize OpenGL for use in the window."""
-        glClearColor(1, 1, 1, 1)
-
         # setup transparency
-        glDisable(GL_CULL_FACE)
+        #glDisable(GL_CULL_FACE)
+        glEnable(GL_CULL_FACE)
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         
+        # BACKGROUND RECT
         width, height = self.GetGLExtents()
         bgdata = [[width,height,0.],  [0.,height,0.],  [width,0.,0.],  [0.,0.,0.]]
         self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
         
         self.compileBGShaders()
         
+        # FOREGROUND OBJECT
         cube = Obj3D( 'cube.obj' )
-        fgdata = cube.getVerticesFlat()
+        fgdata = cube.getVerticesAndNormals()
         self.fgvbo = vbo.VBO( np.array( fgdata, 'f' ) )
         
         self.compileShaders()
         
+        self.vertex_location = 1
+        self.normal_location = 2
+        
         if REALTIME:
-            self.timer.Start(1000/60)    # 1 second interval
+            self.timer.Start(1000/60)    # 60 FPS
+        
+    def OnPaintGL( self ):
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
+
+        # BACKGROUND
+        width, height = self.GetGLExtents()
+        
+        MVP = ortho( 0,width, 0, height, -1, 1 )
+        
+        shaders.glUseProgram( self.bgshader )
+        
+        glUniformMatrix4fv( glGetUniformLocation(self.bgshader, 'MVP'), 1, True, MVP )
+        
+        self.bgvbo.bind()
+        glEnableClientState( GL_VERTEX_ARRAY );
+        glVertexPointerf( self.bgvbo )
+        
+        glDrawArrays( GL_TRIANGLE_STRIP, 0, len( self.bgvbo ) )
+        
+        self.bgvbo.unbind()
+        glDisableClientState( GL_VERTEX_ARRAY );
+        
+        # FOREGROUND
+        P = perspective(45.0, width / height, self.near_plane, self.far_plane);
+        
+        MV = translate( np.identity(4, 'f'), self.world_pos[0], self.world_pos[1], self.world_pos[2] )
+        MV = rotate( MV, self.world_rot[1], 0, 1, 0 )
+        MV = rotate( MV, self.world_rot[0], 1, 0, 0 )
+        
+        MVP = np.matmul(P, MV)
+        
+        Light = [100,0,-6]
+        
+        shaders.glUseProgram( self.shader )
+        
+        glUniformMatrix4fv( glGetUniformLocation(self.shader, 'MV'), 1, True, MV )
+        glUniformMatrix4fv( glGetUniformLocation(self.shader, 'MVP'), 1, True, MVP )
+        glUniform3fv( glGetUniformLocation(self.shader, 'Light'), 1, Light )
+        
+        self.fgvbo.bind()
+        
+        for uname, ucount, ufuncs in self.graph.uniforms.values():
+            UNIFORM_FUNCTION[ucount]( glGetUniformLocation(self.shader, uname), *ufuncs() )
+        
+        for name, value in custom_nodes.items():
+            value[4]( glGetUniformLocation(self.shader, name), *eval(value[3]) )
+            
+        glEnableVertexAttribArray( self.vertex_location )
+        glEnableVertexAttribArray( self.normal_location )
+        
+        glVertexAttribPointer( self.vertex_location, 3, GL_FLOAT, False, 24, self.fgvbo )
+        glVertexAttribPointer( self.normal_location, 3, GL_FLOAT, False, 24, self.fgvbo+12 )
+        
+        glDrawArrays( GL_TRIANGLES, 0, len( self.fgvbo ) )
+        
+        self.fgvbo.unbind()
+        
+        glDisableVertexAttribArray( self.vertex_location )
+        glDisableVertexAttribArray( self.normal_location )
+        
+        shaders.glUseProgram( 0 )
+        
+        self.SwapBuffers()
         
     def compileBGShaders(self):
         try:
-            VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
+            VERTEX_SHADER = shaders.compileShader( vertexBGShader, GL_VERTEX_SHADER )
             FRAGMENT_SHADER = shaders.compileShader( fragmentBGShader, GL_FRAGMENT_SHADER )
             
             self.bgshader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
@@ -215,18 +304,20 @@ class GLFrame( glcanvas.GLCanvas ):
         
         fragmentShader += globalcode
         
+        fragmentShader += "varying vec4 baseColor;\n\n"
         for name, value in custom_nodes.items():
             fragmentShader += 'uniform '+value[2]+' '+name+';\n' #' = '+value[3](self)+';\n'
             
         fragmentShader += "\nvoid main() {\n"
-        fragmentShader += code
+        #fragmentShader += code
+        fragmentShader += " sg_FragColor = baseColor;\n"
         fragmentShader += "}\n"
         
         return fragmentShader
         
     def compileShaders(self):
         try:
-            VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
+            VERTEX_SHADER = shaders.compileShader( vertexFGShader, GL_VERTEX_SHADER )
         
             # Fragment Shader
             fragmentShader = self.generateCode()
@@ -240,6 +331,7 @@ class GLFrame( glcanvas.GLCanvas ):
 
             self.graph.requires_compilation = False
             self.graph.in_error = False
+            
         except Exception as err:
             self.graph.requires_compilation = False
             self.graph.in_error = True
@@ -254,53 +346,6 @@ class GLFrame( glcanvas.GLCanvas ):
             if self.bgvbo:
                 self.bgvbo.delete()
             self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
-        
-    def OnPaintGL( self ):
-        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
-
-        width, height = self.GetGLExtents()
-        
-        MVP = ortho( 0,width, 0, height, -1, 1 )
-        
-        shaders.glUseProgram( self.bgshader )
-        
-        glUniformMatrix4fv( glGetUniformLocation(self.shader, 'MVP'), 1, True, MVP )
-        
-        self.bgvbo.bind()
-        glEnableClientState( GL_VERTEX_ARRAY );
-        glVertexPointerf( self.bgvbo )
-        
-        glDrawArrays( GL_TRIANGLE_STRIP, 0, len( self.bgvbo ) )
-        
-        self.bgvbo.unbind()
-        glDisableClientState( GL_VERTEX_ARRAY );
-        
-        MVP = perspective(45.0, width / height, self.near_plane, self.far_plane);
-        
-        MVP = translate( MVP, self.world_pos[0], self.world_pos[1], self.world_pos[2] )
-        MVP = rotate( MVP, self.world_rot[1], 0, 1, 0 )
-        MVP = rotate( MVP, self.world_rot[0], 1, 0, 0 )
-        
-        shaders.glUseProgram( self.shader )
-        
-        glUniformMatrix4fv( glGetUniformLocation(self.shader, 'MVP'), 1, True, MVP )
-        
-        self.fgvbo.bind()
-        glEnableClientState( GL_VERTEX_ARRAY );
-        glVertexPointerf( self.fgvbo )
-        
-        for uname, ucount, ufuncs in self.graph.uniforms.values():
-            UNIFORM_FUNCTION[ucount]( glGetUniformLocation(self.shader, uname), *ufuncs() )
-        
-        for name, value in custom_nodes.items():
-            value[4]( glGetUniformLocation(self.shader, name), *eval(value[3]) )
-            
-        glDrawArrays( GL_TRIANGLES, 0, len( self.fgvbo ) )
-        self.fgvbo.unbind()
-        glDisableClientState( GL_VERTEX_ARRAY );
-        shaders.glUseProgram( 0 )
-        
-        self.SwapBuffers()
         
 class GraphWindow( wx.Panel ):
     def __init__(self, parent, graph):
