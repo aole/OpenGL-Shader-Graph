@@ -15,6 +15,8 @@ class Plug:
         self.editable = True
         self.internal = internal
         
+        self.list = []
+        
         if generate_variable:
             self.variable += str(Plug.count)
             Plug.count += 1
@@ -32,6 +34,12 @@ class Plug:
         
     def setDefaultValue(self):
         self.value = self.defaultValue
+    
+    def setList( self, list ):
+        self.list = list
+    
+    def getList( self ):
+        return self.list
         
 class Value:
     def __init__(self, value=''):
@@ -81,6 +89,10 @@ class StringValue(Value):
     def __init__(self, value='sin'):
         super().__init__(value)
 
+class ListValue(Value):
+    def __init__(self, value = 'sin'):
+        super().__init__(value)
+        
 class Node:
     def __init__( self, name='Node' ):
         self.inplugs = {}
@@ -221,11 +233,14 @@ class DivideNode(Node):
     def customCode(self, name):
         return f'float {self.outplugs["Result"].variable} = {self.inplugs["Divident"].variable} / {self.inplugs["Divisor"].variable}'
         
-class OperatorNode(Node):
+class OperatorIINode(Node):
     def __init__(self):
         super().__init__('Operator (II)')
         
-        self.addInPlug( Plug('Operator', self, 'float', 'o', StringValue('+'), declare_variable=False, internal = True) )
+        OpIIPlug = Plug('Operator', self, 'float', 'o', ListValue('+'), declare_variable=False, internal = True)
+        OpIIPlug.setList(('+','-','*','/'))
+        self.addInPlug( OpIIPlug )
+        
         self.addInPlug(Plug('From', self, 'float', 'sa', FloatValue()))
         self.addInPlug(Plug('What', self, 'float', 'sb', FloatValue()))
         self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
@@ -271,8 +286,14 @@ class FunctionINode(Node):
     def __init__(self):
         super().__init__('Function (I)')
         
-        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('sin'), declare_variable=False, internal = True) )
-        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('float'), declare_variable=False, internal = True) )
+        funcIPlug = Plug('Function', self, 'float', 'f', ListValue('sin'), declare_variable=False, internal = True)
+        funcIPlug.setList(('abs','acos','acosh','asin','asinh','atan','atanh','ceil','cos','cosh','degrees','exp','exp2','floor','length','log','log2','noise1','noise2','noise3','noise4','normalize','not','radians','round','roundEven','sign','sin','sinh','sqrt','tan','tanh','trunc'))
+        self.addInPlug( funcIPlug )
+        
+        varTypePlug = Plug('Type', self, 'float', 't', ListValue('float'), declare_variable=False, internal = True)
+        varTypePlug.setList(('float','vec2','vec3','vec4'))
+        self.addInPlug( varTypePlug )
+        
         self.addInPlug( Plug('Param', self, 'float', 'p', FloatValue()) )
         self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
         
@@ -283,8 +304,14 @@ class FunctionIINode(Node):
     def __init__(self):
         super().__init__('Function (II)')
         
-        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('step'), declare_variable=False, internal = True) )
-        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('float'), declare_variable=False, internal = True) )
+        funcIPlug = Plug('Function', self, 'float', 'f', ListValue('step'), declare_variable=False, internal = True)
+        funcIPlug.setList(('cross','distance','dot','equal','lessThan','lessThanEqual','max','min','mod','modf','notEqual','outerProduct','pow','reflect','step'))
+        self.addInPlug( funcIPlug )
+        
+        varTypePlug = Plug('Type', self, 'float', 't', ListValue('float'), declare_variable=False, internal = True)
+        varTypePlug.setList(('float','vec2','vec3','vec4'))
+        self.addInPlug( varTypePlug )
+        
         self.addInPlug( Plug('Param1', self, 'float', 'pa', FloatValue()) )
         self.addInPlug( Plug('Param2', self, 'float', 'pb', FloatValue()) )
         self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
@@ -296,8 +323,14 @@ class FunctionIIINode(Node):
     def __init__(self):
         super().__init__('Function (III)')
         
-        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('vec3'), declare_variable=False, internal = True) )
-        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('vec3'), declare_variable=False, internal = True) )
+        funcIPlug = Plug('Function', self, 'float', 'f', ListValue('vec3'), declare_variable=False, internal = True)
+        funcIPlug.setList(('clamp','mix','refract','smoothstep','vec3'))
+        self.addInPlug( funcIPlug )
+        
+        varTypePlug = Plug('Type', self, 'float', 't', ListValue('vec3'), declare_variable=False, internal = True)
+        varTypePlug.setList(('float','vec2','vec3','vec4'))
+        self.addInPlug( varTypePlug )
+        
         self.addInPlug( Plug('Param1', self, 'float', 'pa', FloatValue()) )
         self.addInPlug( Plug('Param2', self, 'float', 'pb', FloatValue()) )
         self.addInPlug( Plug('Param3', self, 'float', 'pc', FloatValue()) )
@@ -310,8 +343,14 @@ class FunctionIVNode(Node):
     def __init__(self):
         super().__init__('Function (IV)')
         
-        self.addInPlug( Plug('Function', self, 'float', 'f', StringValue('vec4'), declare_variable=False, internal = True) )
-        self.addInPlug( Plug('Type', self, 'float', 't', StringValue('vec4'), declare_variable=False, internal = True) )
+        funcIPlug = Plug('Function', self, 'float', 'f', ListValue('vec4'), declare_variable=False, internal = True)
+        funcIPlug.setList(('vec4'))
+        self.addInPlug( funcIPlug )
+        
+        varTypePlug = Plug('Type', self, 'float', 't', ListValue('vec4'), declare_variable=False, internal = True)
+        varTypePlug.setList(('float','vec2','vec3','vec4'))
+        self.addInPlug( varTypePlug )
+        
         self.addInPlug( Plug('Param1', self, 'float', 'pa', FloatValue()) )
         self.addInPlug( Plug('Param2', self, 'float', 'pb', FloatValue()) )
         self.addInPlug( Plug('Param3', self, 'float', 'pc', FloatValue()) )
@@ -347,7 +386,7 @@ node_classes = {
             'Vec4 to Color': Vec4ToColorNode,
             'Frag Coords': FragCoordNode,
             'Divide': DivideNode,
-            'Operator (II)': OperatorNode,
+            'Operator (II)': OperatorIINode,
             'Smooth Step': SmoothStepNode,
             'Plot Line': PlotNode,
             'Add Color': AddColorNode,

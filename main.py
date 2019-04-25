@@ -17,7 +17,7 @@ from OpenGL.GL import shaders
 from readobj import Obj3D
 
 from shadergraph import NodeFactory, FragmentShaderGraph
-from shadergraph import Plug, ColorValue, FloatValue, StringValue
+from shadergraph import Plug, ColorValue, FloatValue, StringValue, ListValue
 
 UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
 
@@ -360,6 +360,11 @@ class GraphWindow( wx.Panel ):
 
         self.font = self.GetFont()
         
+        self.listbox = wx.ListCtrl(self, size=(100,-1), style=wx.LC_REPORT|wx.LC_NO_HEADER|wx.LC_SINGLE_SEL|wx.LC_HRULES)
+        self.listbox.Show(False)
+        self.listbox.AppendColumn('Available')
+        self.listbox.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnListItemSelected)
+        
         #POPUP MENU
         self.popupMenu = wx.Menu()
         for idx, nodename in enumerate(NodeFactory.getNodeNames()):
@@ -491,6 +496,9 @@ class GraphWindow( wx.Panel ):
                     elif isinstance(plug.value, StringValue):
                         gc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH*2, self.TXTHEIGHT)
                         gc.DrawText(plug.value.value, locx+self.PLUGVALUEGAP+3, y)
+                    elif isinstance(plug.value, ListValue):
+                        gc.DrawRectangle(locx+self.PLUGVALUEGAP, y, self.TXT4WIDTH*2, self.TXTHEIGHT)
+                        gc.DrawText(plug.value.value, locx+self.PLUGVALUEGAP+3, y)
                     else:
                         gc.DrawText(name, locx+self.PLUGVALUEGAP, y)
                     
@@ -561,12 +569,14 @@ class GraphWindow( wx.Panel ):
 
     def OnMiddleDown(self, event):
         self.middle_down = True
+        self.listbox.Show(False)
         
     def OnMiddleUp(self, event):
         self.middle_down = False
         
     def OnRightDown(self, event):
         self.selected_node = None
+        self.listbox.Show(False)
         if self.hovered_node:
             self.selected_node = self.hovered_node
             
@@ -611,6 +621,15 @@ class GraphWindow( wx.Panel ):
         self.Refresh()
         self.lastx, self.lasty = x, y
         
+    def OnListItemSelected( self, event ):
+        currentItem = self.listbox.GetFirstSelected()
+        self.listbox.Show(False)
+        plug = self.listbox.plug
+        if plug:
+            value = plug.getList()[currentItem]
+            plug.value.SetValue(value)
+            self.graph.requires_compilation = True
+        
     def triggerPlugInput( self, plug ):
         if not plug.editable:
             return
@@ -633,7 +652,24 @@ class GraphWindow( wx.Panel ):
             if dialog.ShowModal() == wx.ID_OK:
                 plug.value.SetValue(dialog.GetValue())
                 self.graph.requires_compilation = True
-    
+        elif isinstance(plug.value, ListValue):
+            self.listbox.DeleteAllItems()
+            listitems = plug.getList()
+            if listitems:
+                setattr(self.listbox, 'plug', plug)
+                x, y = self.pluglocation[plug]
+                tosel = 0
+                for idx, li in enumerate(listitems):
+                    if li == plug.value.value:
+                        tosel=idx
+                    self.listbox.InsertItem(idx, li)
+                self.listbox.Select(tosel)
+                self.listbox.Focus(tosel)
+                self.listbox.SetPosition((x+self.PLUGVALUEGAP+1,y-self.TXTHEIGHT/2+1))
+                #self.listbox.SetSize((self.TXT4WIDTH*3, 200))
+                self.listbox.SetColumnWidth(0, -1)
+                self.listbox.Show(True)
+            
     def OnLeftUp(self, event):
         self.left_down = False
         x, y = event.GetPosition()
@@ -667,6 +703,7 @@ class GraphWindow( wx.Panel ):
         
     def OnLeftDown(self, event):
         x, y = event.GetPosition()
+        self.listbox.Show(False)
         
         self.selected_node = None
         if self.hovered_node:
