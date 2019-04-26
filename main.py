@@ -309,10 +309,10 @@ class GraphWindow( wx.Panel ):
         self.graph = graph
         self.nodeRects = {}
         self.pluglocation = {}
-        self.left_down = False
-        self.middle_down = False
         self.lastx = self.lasty = 0
         self.panx = self.pany = 0
+        self.origMouseDownPosition = (0,0)
+        self.selection_rect = [0,0,0,0]
         self.popupCoords = (0,0)
         
         self.hovered_node = None
@@ -330,6 +330,7 @@ class GraphWindow( wx.Panel ):
         self.ERROR_BRUSH = wx.Brush(wx.Colour(200,100,100))
         
         self.BLACK_PEN = wx.Pen(wx.Colour(0,0,0))
+        self.SELECTION_PEN = wx.Pen(wx.Colour(0,0,0,150), style=wx.PENSTYLE_LONG_DASH)
         self.GRAY_PEN_100 = wx.Pen(wx.Colour(100,100,100))
         self.GRAY_PEN_150 = wx.Pen(wx.Colour(150,150,150))
         self.GRAY_PEN_200 = wx.Pen(wx.Colour(200,200,200))
@@ -353,7 +354,6 @@ class GraphWindow( wx.Panel ):
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
         self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.Bind(wx.EVT_MIDDLE_DOWN, self.OnMiddleDown)
-        self.Bind(wx.EVT_MIDDLE_UP, self.OnMiddleUp)
         self.Bind(wx.EVT_MOTION, self.OnMouseMotion)
         self.Bind(wx.EVT_PAINT, self.OnPaint)
         self.Bind(wx.EVT_RIGHT_DOWN, self.OnRightDown)
@@ -542,7 +542,7 @@ class GraphWindow( wx.Panel ):
                         gc.DrawEllipse(x2-PLUG_CIRCLE_RADIUS, y2-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
                         
             # hovered plug
-            if self.selected_plug and self.left_down:
+            if self.selected_plug and wx.GetMouseState().LeftIsDown():
                 x1, y1 = self.pluglocation[self.selected_plug]
                 x2, y2 = self.ScreenToClient(wx.GetMousePosition())
                 
@@ -557,6 +557,13 @@ class GraphWindow( wx.Panel ):
                     path.AddCurveToPoint(x1+ctx, y1, x2-ctx, y2, x2, y2)
                     gc.StrokePath(path)
         
+            # selection rect
+            if self.selection_rect[2]>0 and self.selection_rect[3]>0:
+                x,y,w,h = self.selection_rect
+                gc.SetPen(self.SELECTION_PEN)
+                gc.SetBrush(wx.NullBrush)
+                gc.DrawRectangle(x, y, w, h)
+                
     def OnAddNode(self, event):
         node = NodeFactory.getNewNode(event.GetEventObject().GetLabelText(event.GetId()))
         node.location = self.popupCoords
@@ -569,11 +576,7 @@ class GraphWindow( wx.Panel ):
         self.Refresh()
 
     def OnMiddleDown(self, event):
-        self.middle_down = True
         self.hideListBox()
-        
-    def OnMiddleUp(self, event):
-        self.middle_down = False
         
     def OnRightDown(self, event):
         self.selected_nodes.clear()
@@ -587,40 +590,51 @@ class GraphWindow( wx.Panel ):
     def OnMouseMotion(self, event):
         x, y = event.GetPosition()
         dx, dy = x-self.lastx, y-self.lasty
-        
-        if self.middle_down:
-            self.panx += dx
-            self.pany += dy
-        else:
-            if self.selected_plug and self.left_down: # find 2nd plug
-                self.selected_plug2 = None
-                for plug, loc in self.pluglocation.items():
-                    lx, ly = loc
-                    if x>=lx-PLUG_CIRCLE_RADIUS and x<=lx+PLUG_CIRCLE_RADIUS and y>=ly-PLUG_CIRCLE_RADIUS and y<=ly+PLUG_CIRCLE_RADIUS:
-                        if self.selected_plug != plug:
-                            self.selected_plug2 = plug
-                        break
-            elif self.hovered_node and self.left_down: # move node
-                self.hovered_node.location[0] += x - self.lastx
-                self.hovered_node.location[1] += y - self.lasty
-            elif not self.left_down: # find node/ 1st plug
-                self.hovered_node = None
-                self.selected_plug = None
-                self.selected_plug2 = None
-                found = False
-                for plug, loc in self.pluglocation.items():
-                    lx, ly = loc
-                    if x>=lx-PLUG_CIRCLE_RADIUS and x<=lx+PLUG_CIRCLE_RADIUS and y>=ly-PLUG_CIRCLE_RADIUS and y<=ly+PLUG_CIRCLE_RADIUS:
-                        self.selected_plug = plug
-                        found = True
-                        break
-                if not found: # if no plug found
-                    for node, r in self.nodeRects.items():
-                        if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
-                            self.hovered_node = node
-                            break
-        self.Refresh()
         self.lastx, self.lasty = x, y
+        
+        if event.Dragging():
+            if event.MiddleIsDown():
+                self.panx += dx
+                self.pany += dy
+            elif event.LeftIsDown():
+                if self.selected_plug: # find 2nd plug
+                    self.selected_plug2 = None
+                    for plug, loc in self.pluglocation.items():
+                        lx, ly = loc
+                        if x>=lx-PLUG_CIRCLE_RADIUS and x<=lx+PLUG_CIRCLE_RADIUS and y>=ly-PLUG_CIRCLE_RADIUS and y<=ly+PLUG_CIRCLE_RADIUS:
+                            if self.selected_plug != plug:
+                                self.selected_plug2 = plug
+                            break
+                elif self.selected_nodes: # move node
+                    for node in self.selected_nodes:
+                        node.location[0] += dx
+                        node.location[1] += dy
+                else: # selection rect
+                    x1, y1 = x, y
+                    x2, y2 = self.origMouseDownPosition
+                    if x2<x1:
+                        x1,x2=x2,x1
+                    if y2<y1:
+                        y1,y2=y2,y1
+                    self.selection_rect = (x1,y1,x2-x1,y2-y1)
+                    
+        else: # find node/ 1st plug
+            self.hovered_node = None
+            self.selected_plug = None
+            self.selected_plug2 = None
+            found = False
+            for plug, loc in self.pluglocation.items():
+                lx, ly = loc
+                if x>=lx-PLUG_CIRCLE_RADIUS and x<=lx+PLUG_CIRCLE_RADIUS and y>=ly-PLUG_CIRCLE_RADIUS and y<=ly+PLUG_CIRCLE_RADIUS:
+                    self.selected_plug = plug
+                    found = True
+                    break
+            if not found: # if no plug found
+                for node, r in self.nodeRects.items():
+                    if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
+                        self.hovered_node = node
+                        break
+        self.Refresh()
         
     def hideListBox( self ):
         self.listbox.Show(False)
@@ -676,8 +690,8 @@ class GraphWindow( wx.Panel ):
                 self.listbox.Show(True)
             
     def OnLeftUp(self, event):
-        self.left_down = False
         x, y = event.GetPosition()
+        self.selection_rect = (0,0,0,0)
         
         if self.selected_plug and self.selected_plug2:
             pin = self.selected_plug
@@ -708,13 +722,16 @@ class GraphWindow( wx.Panel ):
         
     def OnLeftDown(self, event):
         x, y = event.GetPosition()
+        self.origMouseDownPosition = event.GetPosition()
+        
         self.hideListBox()
         shiftdown = wx.GetKeyState(wx.WXK_SHIFT)
         if not shiftdown:
             self.selected_nodes.clear()
             
         if self.hovered_node:
-            self.selected_nodes.append(self.hovered_node)
+            if self.hovered_node not in self.selected_nodes:
+                self.selected_nodes.append(self.hovered_node)
             if not self.selected_plug:
                 r = self.nodeRects[self.hovered_node]
                 # check if X is clicked
@@ -727,7 +744,6 @@ class GraphWindow( wx.Panel ):
         elif self.selected_plug:
             self.selected_nodes = [self.selected_plug.parent]
             
-        self.left_down = True
         self.lastx, self.lasty = x, y
         self.Refresh()
     
