@@ -316,7 +316,7 @@ class GraphWindow( wx.Panel ):
         self.popupCoords = (0,0)
         
         self.hovered_node = None
-        self.selected_node = None
+        self.selected_nodes = []
         self.selected_plug = None
         self.selected_plug2 = None
         
@@ -349,6 +349,7 @@ class GraphWindow( wx.Panel ):
 
     def InitUI(self):
         self.Bind(wx.EVT_ERASE_BACKGROUND, self.OnEraseBackground)
+        self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
         self.Bind(wx.EVT_LEFT_DOWN, self.OnLeftDown)
         self.Bind(wx.EVT_LEFT_UP, self.OnLeftUp)
         self.Bind(wx.EVT_MIDDLE_DOWN, self.OnMiddleDown)
@@ -361,7 +362,7 @@ class GraphWindow( wx.Panel ):
         self.font = self.GetFont()
         
         self.listbox = wx.ListCtrl(self, size=(100,-1), style=wx.LC_REPORT|wx.LC_NO_HEADER|wx.LC_SINGLE_SEL|wx.LC_HRULES)
-        self.listbox.Show(False)
+        self.hideListBox()
         self.listbox.AppendColumn('Available')
         self.listbox.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnListItemSelected)
         
@@ -434,7 +435,7 @@ class GraphWindow( wx.Panel ):
                 
                 bodyh = plugcount * (txtheight+4)
                 # draw Selection indication
-                if node == self.selected_node:
+                if node in self.selected_nodes:
                     gc.SetPen(wx.NullPen)
                     gc.SetBrush(self.TGRAY_BRUSH_100)
                     gc.DrawRoundedRectangle(locx-3, locy-3, txtwidth+4+15+7, txtheight+4+bodyh+7, 3)
@@ -559,7 +560,7 @@ class GraphWindow( wx.Panel ):
     def OnAddNode(self, event):
         node = NodeFactory.getNewNode(event.GetEventObject().GetLabelText(event.GetId()))
         node.location = self.popupCoords
-        self.selected_node = node
+        self.selected_nodes = [node]
         self.graph.nodes.append(node)
         self.graph.requires_compilation = True
         self.Refresh()
@@ -569,16 +570,16 @@ class GraphWindow( wx.Panel ):
 
     def OnMiddleDown(self, event):
         self.middle_down = True
-        self.listbox.Show(False)
+        self.hideListBox()
         
     def OnMiddleUp(self, event):
         self.middle_down = False
         
     def OnRightDown(self, event):
-        self.selected_node = None
-        self.listbox.Show(False)
+        self.selected_nodes.clear()
+        self.hideListBox()
         if self.hovered_node:
-            self.selected_node = self.hovered_node
+            self.selected_nodes = [self.hovered_node]
             
         self.popupCoords = event.GetPosition() - (self.panx, self.pany)
         self.PopupMenu( self.popupMenu, event.GetPosition() )
@@ -621,9 +622,13 @@ class GraphWindow( wx.Panel ):
         self.Refresh()
         self.lastx, self.lasty = x, y
         
+    def hideListBox( self ):
+        self.listbox.Show(False)
+        self.SetFocusIgnoringChildren()
+        
     def OnListItemSelected( self, event ):
         currentItem = self.listbox.GetFirstSelected()
-        self.listbox.Show(False)
+        self.hideListBox()
         plug = self.listbox.plug
         if plug:
             value = plug.getList()[currentItem]
@@ -703,11 +708,13 @@ class GraphWindow( wx.Panel ):
         
     def OnLeftDown(self, event):
         x, y = event.GetPosition()
-        self.listbox.Show(False)
-        
-        self.selected_node = None
+        self.hideListBox()
+        shiftdown = wx.GetKeyState(wx.WXK_SHIFT)
+        if not shiftdown:
+            self.selected_nodes.clear()
+            
         if self.hovered_node:
-            self.selected_node = self.hovered_node
+            self.selected_nodes.append(self.hovered_node)
             if not self.selected_plug:
                 r = self.nodeRects[self.hovered_node]
                 # check if X is clicked
@@ -718,15 +725,20 @@ class GraphWindow( wx.Panel ):
             self.selected_plug.setDefaultValue()
             self.graph.requires_compilation = True
         elif self.selected_plug:
-            self.selected_node = self.selected_plug.parent
+            self.selected_nodes = [self.selected_plug.parent]
             
         self.left_down = True
         self.lastx, self.lasty = x, y
         self.Refresh()
     
+    def OnKeyDown(self, event):
+        keycode = event.GetKeyCode()
+        if keycode == wx.WXK_DELETE:
+            self.deleteSelectedNode()
+        
     def deleteSelectedNode(self):
-        if self.selected_node:
-            self.removeNode(self.selected_node)
+        for node in self.selected_nodes:
+            self.removeNode(node)
             
     def removeNode(self, node):
         if not node.can_delete:
@@ -734,7 +746,8 @@ class GraphWindow( wx.Panel ):
             
         self.graph.removeNode(node)
         del self.nodeRects[node]
-        self.hovered_node = self.selected_node = None
+        self.hovered_node = None
+        self.selected_nodes = []
         self.selected_plug = self.selected_plug2 = None
         self.graph.requires_compilation = True
         self.Refresh()
@@ -748,8 +761,6 @@ class Window( wx.Frame ):
         self.initUI()
     
     def initUI( self ):
-        self.Bind(wx.EVT_KEY_DOWN, self.OnKeyDown)
-        
         # MENU
         fmenu = wx.Menu()
         
@@ -800,16 +811,9 @@ class Window( wx.Frame ):
         # MIN SIZE to avoid GL error
         self.SetSizeHints(200,100,-1,-1)
         
-        self.SetFocus()
         # SHOW
         self.Show()
     
-    def OnKeyDown(self, event):
-        keycode = event.GetKeyCode()
-        
-        if keycode == wx.WXK_DELETE:
-            self.graphPanel.deleteSelectedNode()
-        
     def OnTabChanged( self, event ):
         self.codePanel.SetValue(self.glwindow.generateCode())
         
