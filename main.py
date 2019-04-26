@@ -312,11 +312,12 @@ class GraphWindow( wx.Panel ):
         self.lastx = self.lasty = 0
         self.panx = self.pany = 0
         self.origMouseDownPosition = (0,0)
-        self.selection_rect = [0,0,0,0]
+        self.selection_rect = wx.Rect() #[0,0,0,0]
         self.popupCoords = (0,0)
         
         self.hovered_node = None
         self.selected_nodes = []
+        self.rect_selected_nodes = []
         self.selected_plug = None
         self.selected_plug2 = None
         
@@ -435,7 +436,7 @@ class GraphWindow( wx.Panel ):
                 
                 bodyh = plugcount * (txtheight+4)
                 # draw Selection indication
-                if node in self.selected_nodes:
+                if node in self.selected_nodes+self.rect_selected_nodes:
                     gc.SetPen(wx.NullPen)
                     gc.SetBrush(self.TGRAY_BRUSH_100)
                     gc.DrawRoundedRectangle(locx-3, locy-3, txtwidth+4+15+7, txtheight+4+bodyh+7, 3)
@@ -453,7 +454,7 @@ class GraphWindow( wx.Panel ):
                 gc.DrawRoundedRectangle(locx, locy+txtheight+4, txtwidth+4+15, bodyh, 3)
 
                 #if node not in self.nodeRects:
-                self.nodeRects[node] = [locx, locy, txtwidth+4+15, txtheight+4+bodyh]
+                self.nodeRects[node] = wx.Rect(locx, locy, txtwidth+4+15, txtheight+4+bodyh)
                 
                 y = locy+txtheight+4
                 # out plugs
@@ -558,7 +559,7 @@ class GraphWindow( wx.Panel ):
                     gc.StrokePath(path)
         
             # selection rect
-            if self.selection_rect[2]>0 and self.selection_rect[3]>0:
+            if self.selection_rect.width>0 and self.selection_rect.height>0:
                 x,y,w,h = self.selection_rect
                 gc.SetPen(self.SELECTION_PEN)
                 gc.SetBrush(wx.NullBrush)
@@ -605,7 +606,7 @@ class GraphWindow( wx.Panel ):
                             if self.selected_plug != plug:
                                 self.selected_plug2 = plug
                             break
-                elif self.selected_nodes: # move node
+                elif self.selected_nodes and self.hovered_node and (not self.selection_rect.width>0 or not self.selection_rect.height>0): # move node
                     for node in self.selected_nodes:
                         node.location[0] += dx
                         node.location[1] += dy
@@ -616,7 +617,15 @@ class GraphWindow( wx.Panel ):
                         x1,x2=x2,x1
                     if y2<y1:
                         y1,y2=y2,y1
-                    self.selection_rect = (x1,y1,x2-x1,y2-y1)
+                    self.selection_rect = wx.Rect(x1,y1,x2-x1,y2-y1)
+                    
+                    self.rect_selected_nodes.clear()
+                    if not wx.GetKeyState(wx.WXK_SHIFT):
+                        self.selected_nodes.clear()
+                    for node, rect in self.nodeRects.items():
+                        if rect.Intersects(self.selection_rect):
+                            if node not in self.rect_selected_nodes:
+                                self.rect_selected_nodes.append(node)
                     
         else: # find node/ 1st plug
             self.hovered_node = None
@@ -630,8 +639,8 @@ class GraphWindow( wx.Panel ):
                     found = True
                     break
             if not found: # if no plug found
-                for node, r in self.nodeRects.items():
-                    if x>=r[0] and x<=r[0]+r[2] and y>=r[1] and y<=r[1]+r[3]:
+                for node, rect in self.nodeRects.items():
+                    if rect.Contains(x,y):
                         self.hovered_node = node
                         break
         self.Refresh()
@@ -691,7 +700,12 @@ class GraphWindow( wx.Panel ):
             
     def OnLeftUp(self, event):
         x, y = event.GetPosition()
-        self.selection_rect = (0,0,0,0)
+        self.selection_rect = wx.Rect()
+        
+        for node in self.rect_selected_nodes:
+            if node not in self.selected_nodes:
+                self.selected_nodes.append(node)
+        self.rect_selected_nodes.clear()
         
         if self.selected_plug and self.selected_plug2:
             pin = self.selected_plug
@@ -726,19 +740,22 @@ class GraphWindow( wx.Panel ):
         
         self.hideListBox()
         shiftdown = wx.GetKeyState(wx.WXK_SHIFT)
-        if not shiftdown:
+        ctrldown = wx.GetKeyState(wx.WXK_CONTROL)
+        
+        # Clear all selection except with click on an existing selection
+        if not shiftdown and not self.hovered_node in self.selected_nodes:
             self.selected_nodes.clear()
             
         if self.hovered_node:
             if self.hovered_node not in self.selected_nodes:
                 self.selected_nodes.append(self.hovered_node)
             if not self.selected_plug:
-                r = self.nodeRects[self.hovered_node]
+                rect = self.nodeRects[self.hovered_node]
                 # check if X is clicked
-                if self.hovered_node.can_delete and x>(r[0]+r[2])-20 and y<r[1]+20:
+                if self.hovered_node.can_delete and x>(rect.x+rect.width)-20 and y<rect.y+20:
                     self.removeNode(self.hovered_node)
         
-        elif self.selected_plug and wx.GetKeyState(wx.WXK_CONTROL) and self.selected_plug.inParam:
+        elif self.selected_plug and ctrldown and self.selected_plug.inParam:
             self.selected_plug.setDefaultValue()
             self.graph.requires_compilation = True
         elif self.selected_plug:
