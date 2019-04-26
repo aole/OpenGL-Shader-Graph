@@ -16,7 +16,7 @@ from OpenGL.GL import shaders
 
 from readobj import Obj3D
 
-from shadergraph import NodeFactory, FragmentShaderGraph
+from shadergraph import NodeFactory, ShaderGraph
 from shadergraph import Plug, ColorValue, FloatValue, StringValue, ListValue
 
 UNIFORM_FUNCTION = [None, glUniform1f, glUniform2f, glUniform3f, glUniform4f]
@@ -25,41 +25,53 @@ PLUG_CIRCLE_RADIUS = 4
 PLUG_CIRCLE_SIZE = PLUG_CIRCLE_RADIUS * 2
 
 REALTIME = True
+RENDER_BACKGROUND = True
+RENDER_FOREGROUND = True
 
 __author__ = 'Bhupendra Aole'
 __version__ = '0.1.0'
 
-vertexShader = """
-    #version 330
-    
-    uniform mat4 MVP;
-    layout(location = 0) in vec3 Vertex;
-    
-    void main() {
-        gl_Position = MVP * vec4( Vertex, 1 );
-    }
+vertexBGShader = """
+#version 330
+
+layout(location = 0) in vec3 Vertex;
+uniform mat4 MVP;
+
+void main() {
+    gl_Position = MVP * vec4( Vertex, 1 );
+}
     """
 
 fragmentBGShader = """
-    #version 330
-    
-    out vec4 sg_FragColor;
-    
-    void main() {
-        vec2 d = gl_FragCoord.xy/30;
-        if( mod(int(d.x),2) == mod(int(d.y), 2) ) {
-            sg_FragColor = vec4( .7, .7, .7, 1 );
-        }
-        else {
-            sg_FragColor = vec4( .3, .3, .3, 1 );
-        }
-    }
-    """
+#version 330
 
-custom_nodes = {
-    'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2','self.GetGLExtents()', glUniform2f),
-    'sg_Time':('Time', [('time', 'float', 'sg_Time')], 'float','[time.clock()]', glUniform1f)
+out vec4 sg_FragColor;
+
+void main() {
+    vec2 d = gl_FragCoord.xy/30;
+    if( mod(int(d.x),2) == mod(int(d.y), 2) ) {
+        sg_FragColor = vec4( .7, .7, .7, 1 );
+    }
+    else {
+        sg_FragColor = vec4( .3, .3, .3, 1 );
+    }
 }
+"""
+
+custom_fs_nodes = {
+    'sg_ScreenSize':('Screen Size', [('Width', 'float', 'sg_ScreenSize.x'), ('Height', 'float', 'sg_ScreenSize.y')], 'vec2','self.GetGLExtents()', glUniform2f),
+    'sg_Time':('Time', [('time', 'float', 'sg_Time')], 'float','[time.clock()]', glUniform1f),
+}
+
+custom_vs_nodes = {
+    'MVP':('MVP Matrix', [('Matrix', 'mat4', 'MVP')], 'mat4', 'self.getMVP()', glUniformMatrix4fv),
+}
+
+# Add custom nodes to the node factory
+for value in custom_vs_nodes.values():
+    NodeFactory.addCustomNode(value[0], value[1])
+for value in custom_fs_nodes.values():
+    NodeFactory.addCustomNode(value[0], value[1])
 
 class GLFrame( glcanvas.GLCanvas ):
     """A simple class for using OpenGL with wxPython."""
@@ -164,8 +176,7 @@ class GLFrame( glcanvas.GLCanvas ):
             self.GLinitialized = True
 
         if self.graph.requires_compilation:
-            self.compileShaders()
-            
+            self.compileFGShaders()
         self.OnPaintGL()
         event.Skip()
 
@@ -191,14 +202,14 @@ class GLFrame( glcanvas.GLCanvas ):
         fgdata = cube.getVerticesFlat()
         self.fgvbo = vbo.VBO( np.array( fgdata, 'f' ) )
         
-        self.compileShaders()
+        self.compileFGShaders()
         
         if REALTIME:
             self.timer.Start(1000/60)    # 1 second interval
         
     def compileBGShaders(self):
         try:
-            VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
+            VERTEX_SHADER = shaders.compileShader( vertexBGShader, GL_VERTEX_SHADER )
             FRAGMENT_SHADER = shaders.compileShader( fragmentBGShader, GL_FRAGMENT_SHADER )
             
             self.bgshader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
@@ -206,37 +217,59 @@ class GLFrame( glcanvas.GLCanvas ):
             print(err)
             
     def generateCode( self ):
+        # vertex shader
         code = ""
         globalcode = ""
         self.graph.prepare()
-        code, globalcode = self.graph.nodes[0].generateCode('Pixel Color', code, globalcode)
+        code, globalcode = self.graph.getVertexShaderNode().generateCode('Vertex Position', code, globalcode)
+        
+        vertexShader = "#version 330\n\n"
+        
+        vertexShader += globalcode
+        
+        for name, value in custom_vs_nodes.items():
+            vertexShader += 'uniform '+value[2]+' '+name+';\n'
+        
+        vertexShader += "\nvoid main() {\n"
+        vertexShader += code
+        vertexShader += "}\n"
+        
+        # fragment shader
+        code = ""
+        globalcode = ""
+        self.graph.prepare()
+        code, globalcode = self.graph.getFragmentShaderNode().generateCode('Pixel Color', code, globalcode)
         
         fragmentShader = "#version 330\n\n"
         
         fragmentShader += globalcode
         
-        for name, value in custom_nodes.items():
-            fragmentShader += 'uniform '+value[2]+' '+name+';\n' #' = '+value[3](self)+';\n'
+        for name, value in custom_fs_nodes.items():
+            fragmentShader += 'uniform '+value[2]+' '+name+';\n'
             
         fragmentShader += "\nvoid main() {\n"
         fragmentShader += code
         fragmentShader += "}\n"
         
-        return fragmentShader
+        return vertexShader, fragmentShader
         
-    def compileShaders(self):
+    def compileFGShaders(self):
         try:
+            vertexShader, fragmentShader = self.generateCode()
+            
+            # Vertex Shader
+            print('====Vertex Shader======')
+            print(vertexShader)
+            print('====================')
             VERTEX_SHADER = shaders.compileShader( vertexShader, GL_VERTEX_SHADER )
         
             # Fragment Shader
-            fragmentShader = self.generateCode()
-            
-            print('====================')
+            print('====Fragment Shader====')
             print(fragmentShader)
             print('====================')
             FRAGMENT_SHADER = shaders.compileShader( fragmentShader, GL_FRAGMENT_SHADER )
             
-            self.shader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
+            self.fgshader = shaders.compileProgram( VERTEX_SHADER, FRAGMENT_SHADER )
 
             self.graph.requires_compilation = False
             self.graph.in_error = False
@@ -244,6 +277,8 @@ class GLFrame( glcanvas.GLCanvas ):
             self.graph.requires_compilation = False
             self.graph.in_error = True
             print(err)
+            
+        print('compiled')
             
     def OnReshape( self, width, height ):
         """Reshape the OpenGL viewport based on the dimensions of the window."""
@@ -255,49 +290,58 @@ class GLFrame( glcanvas.GLCanvas ):
                 self.bgvbo.delete()
             self.bgvbo = vbo.VBO( np.array( bgdata, 'f' ) )
         
-    def OnPaintGL( self ):
-        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
-
+    def getMVP( self ):
         width, height = self.GetGLExtents()
-        
-        MVP = ortho( 0,width, 0, height, -1, 1 )
-        
-        shaders.glUseProgram( self.bgshader )
-        
-        glUniformMatrix4fv( glGetUniformLocation(self.shader, 'MVP'), 1, True, MVP )
-        
-        self.bgvbo.bind()
-        glEnableClientState( GL_VERTEX_ARRAY );
-        glVertexPointerf( self.bgvbo )
-        
-        glDrawArrays( GL_TRIANGLE_STRIP, 0, len( self.bgvbo ) )
-        
-        self.bgvbo.unbind()
-        glDisableClientState( GL_VERTEX_ARRAY );
-        
         MVP = perspective(45.0, width / height, self.near_plane, self.far_plane);
         
         MVP = translate( MVP, self.world_pos[0], self.world_pos[1], self.world_pos[2] )
         MVP = rotate( MVP, self.world_rot[1], 0, 1, 0 )
         MVP = rotate( MVP, self.world_rot[0], 1, 0, 0 )
         
-        shaders.glUseProgram( self.shader )
+        return (1, True, MVP)
         
-        glUniformMatrix4fv( glGetUniformLocation(self.shader, 'MVP'), 1, True, MVP )
+    def OnPaintGL( self ):
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT )
+
+        width, height = self.GetGLExtents()
         
-        self.fgvbo.bind()
-        glEnableClientState( GL_VERTEX_ARRAY );
-        glVertexPointerf( self.fgvbo )
-        
-        for uname, ucount, ufuncs in self.graph.uniforms.values():
-            UNIFORM_FUNCTION[ucount]( glGetUniformLocation(self.shader, uname), *ufuncs() )
-        
-        for name, value in custom_nodes.items():
-            value[4]( glGetUniformLocation(self.shader, name), *eval(value[3]) )
+        if RENDER_BACKGROUND:
+            MVP = ortho( 0,width, 0, height, -1, 1 )
             
-        glDrawArrays( GL_TRIANGLES, 0, len( self.fgvbo ) )
-        self.fgvbo.unbind()
-        glDisableClientState( GL_VERTEX_ARRAY );
+            shaders.glUseProgram( self.bgshader )
+            
+            glUniformMatrix4fv( glGetUniformLocation(self.bgshader, 'MVP'), 1, True, MVP )
+            
+            self.bgvbo.bind()
+            glEnableClientState( GL_VERTEX_ARRAY );
+            glVertexPointerf( self.bgvbo )
+            
+            glDrawArrays( GL_TRIANGLE_STRIP, 0, len( self.bgvbo ) )
+            
+            self.bgvbo.unbind()
+            glDisableClientState( GL_VERTEX_ARRAY );
+        
+        if RENDER_FOREGROUND:
+            shaders.glUseProgram( self.fgshader )
+            
+            self.fgvbo.bind()
+            glEnableClientState( GL_VERTEX_ARRAY );
+            glVertexPointerf( self.fgvbo )
+            
+            for uname, ucount, ufuncs in self.graph.uniforms.values():
+                UNIFORM_FUNCTION[ucount]( glGetUniformLocation(self.fgshader, uname), *ufuncs() )
+            
+            for name, value in custom_vs_nodes.items():
+                value[4]( glGetUniformLocation(self.fgshader, name), *eval(value[3]) )
+                
+            for name, value in custom_fs_nodes.items():
+                value[4]( glGetUniformLocation(self.fgshader, name), *eval(value[3]) )
+                
+            glDrawArrays( GL_TRIANGLES, 0, len( self.fgvbo ) )
+            
+            self.fgvbo.unbind()
+            glDisableClientState( GL_VERTEX_ARRAY );
+        
         shaders.glUseProgram( 0 )
         
         self.SwapBuffers()
@@ -343,10 +387,6 @@ class GraphWindow( wx.Panel ):
         
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         
-        # custom nodes
-        for value in custom_nodes.values():
-            NodeFactory.addCustomNode(value[0], value[1])
-            
         self.InitUI()
 
     def InitUI(self):
@@ -789,7 +829,7 @@ class Window( wx.Frame ):
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         
-        self.graph = FragmentShaderGraph()
+        self.graph = ShaderGraph()
         
         self.initUI()
     
@@ -848,7 +888,9 @@ class Window( wx.Frame ):
         self.Show()
     
     def OnTabChanged( self, event ):
-        self.codePanel.SetValue(self.glwindow.generateCode())
+        vs, fs = self.glwindow.generateCode()
+        code = '# Vertex Shader ...\n\n'+vs+'\n\n# Fragment Shader ...\n\n'+fs
+        self.codePanel.SetValue(code)
         
     def OnQuit( self, event ):
         self.Close()
@@ -871,7 +913,7 @@ class Window( wx.Frame ):
                     self.graph = pickle.load(f)
                     self.glwindow.SetGraph(self.graph)
                     self.graphPanel.SetGraph(self.graph)
-                    self.codePanel.SetValue(self.glwindow.generateCode())
+                    self.OnTabChanged(None)
                     self.graph.updateVariableCount()
             except IOError:
                 wx.LogError("Cannot open file '%s'." % newfile)

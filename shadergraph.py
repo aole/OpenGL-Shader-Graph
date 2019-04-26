@@ -72,6 +72,30 @@ class ColorValue(Value):
     def SetColorInt(self, r, g, b):
         self.color = (round(r/255.0,3), round(g/255.0,3), round(b/255.0,3), 1.0)
         
+class Vec3Value(Value):
+    def __init__(self, vector=(0,0,0)):
+        super().__init__()
+        self.vector = vector
+        
+    def __str__(self):
+        return f'vec3({self.vector[0]}, {self.vector[1]}, {self.vector[2]})'
+    
+class Vec4Value(Value):
+    def __init__(self, vector=(0,0,0,1)):
+        super().__init__()
+        self.vector = vector
+        
+    def __str__(self):
+        return f'vec3({self.vector[0]}, {self.vector[1]}, {self.vector[2]}, {self.vector[3]})'
+    
+class Mat4Value(Value):
+    def __init__(self, mat=(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1)):
+        super().__init__()
+        self.mat = mat
+        
+    def __str__(self):
+        return f'mat4({self.mat[0]}, {self.mat[1]}, {self.mat[2]}, {self.mat[3]}, {self.mat[4]}, {self.mat[5]}, {self.mat[6]}, {self.mat[7]}, {self.mat[8]}, {self.mat[9]}, {self.mat[10]}, {self.mat[11]}, {self.mat[12]}, {self.mat[13]}, {self.mat[14]}, {self.mat[15]})'
+    
 class FloatValue(Value):
     def __init__(self, value=1):
         super().__init__(value)
@@ -139,9 +163,10 @@ class Node:
                         globalcode += plug.value.value + ";\n"
                         plug.value.declared = True
                 else:
-                    if plug.value.declare_variable and not plug.value.declared:
+                    if not plug.value.declared:
                         out, gc = plug.value.parent.generateCode(plug.value.name, code, globalcode)
-                        code = out
+                        if plug.value.declare_variable:
+                            code = out
                         globalcode = gc
                         plug.value.declared = True
             if plug.declare_variable:
@@ -259,6 +284,17 @@ class AddColorNode(Node):
     def customCode(self, name):
         return f'vec4 {self.outplugs["Result"].variable} = {self.inplugs["Color1"].variable} + {self.inplugs["Color2"].variable}'
         
+class VectorTransformNode(Node):
+    def __init__(self):
+        super().__init__('Vector transform')
+        
+        self.addInPlug(Plug('Vector', self, 'vec4', 'v', Vec4Value()))
+        self.addInPlug(Plug('Matrix', self, 'mat4', 'm', Mat4Value()))
+        self.addOutPlug( Plug('Result', self, 'vec4', 'r', Vec4Value()) )
+        
+    def customCode(self, name):
+        return f'vec4 {self.outplugs["Result"].variable} = {self.inplugs["Matrix"].variable} * vec4({self.inplugs["Vector"].variable})'
+        
 class SmoothStepNode(Node):
     def __init__(self):
         super().__init__('Smooth Step')
@@ -366,8 +402,29 @@ class FragCoordNode(Node):
         
         self.addOutPlug(Plug('X', self, 'float', 'gl_FragCoord.x', FloatValue(), generate_variable=False, declare_variable=False))
         self.addOutPlug(Plug('Y', self, 'float', 'gl_FragCoord.y', FloatValue(), generate_variable=False, declare_variable=False))
-        self.addOutPlug(Plug('Z', self, 'float', 'gl_FragCoord.z', FloatValue(), generate_variable=False, declare_variable=False))
+        self.addOutPlug(Plug('Z', self, 'float', 'gl_FragCoord.z', FloatValue(), declare_variable=False))
         
+class InputVertexNode(Node):
+    def __init__(self):
+        super().__init__('Input Vertex')
+        
+        self.plug = Plug('Attribute', self, 'vec4', 'vec4(Vertex,1)', 'Vertex', inParam=False, generate_variable=False, declare_variable=False)
+        self.addOutPlug(self.plug)
+        self.plug.editable = False
+
+    def getGlobalCode(self):
+        return 'layout(location = 0) in vec3 Vertex;\n';
+        
+class VertexShaderNode(Node):
+    def __init__(self):
+        super().__init__('Vertex Shader')
+        
+        self.addInPlug( Plug('Input Vertex', self, 'vec4', 't', Vec4Value(), generate_variable=False) )
+        self.addOutPlug( Plug('Vertex Position', self, '', 'gl_Position', self.inplugs['Input Vertex'], False, False, inParam=False) )
+        
+    def customCode(self, name):
+        return f'{self.outplugs["Vertex Position"].variable} = {self.inplugs["Input Vertex"].variable}'
+
 class FragmentShaderNode(Node):
     def __init__(self):
         super().__init__('Fragment Shader')
@@ -394,6 +451,7 @@ node_classes = {
             'Function (II)': FunctionIINode,
             'Function (III)': FunctionIIINode,
             'Function (IV)': FunctionIVNode,
+            'Vector Transform': VectorTransformNode,
         }
         
 custom_nodes = {}
@@ -419,15 +477,18 @@ class NodeFactory:
     def addCustomNode(name, outplugs):
         custom_nodes[name] = (name, outplugs)
     
-class FragmentShaderGraph:
+class ShaderGraph:
     def __init__(self):
-        fsnode = FragmentShaderNode()
-        fsnode.can_delete = False
-        fsnode.location = [350, 20]
-        self.nodes = [fsnode]
-        self.requires_compilation = True
         self.uniforms = {}
-        self.in_error = False
+        self.nodes = []
+        
+        self.new()
+        
+    def getVertexShaderNode(self):
+        return self.vsnode
+        
+    def getFragmentShaderNode(self):
+        return self.fsnode
         
     def removeNode(self, rnode):
         self.nodes.remove(rnode)
@@ -452,11 +513,36 @@ class FragmentShaderGraph:
     def new( self ):
         self.uniforms.clear()
         self.nodes.clear()
-        fsnode = FragmentShaderNode()
-        fsnode.can_delete = False
-        fsnode.location = [350, 20]
-        self.nodes.append(fsnode)
+        
+        # vertex shader
+        self.vsnode = VertexShaderNode()
+        self.vsnode.can_delete = False
+        self.vsnode.location = [280, 100]
+        
+        ivn = InputVertexNode()
+        ivn.can_delete = False
+        ivn.location = [10, 100]
+        
+        mn = NodeFactory.getNewNode('MVP Matrix')
+        mn.location = [10, 150]
+        
+        vtn = VectorTransformNode()
+        vtn.location = [130, 100]
+        
+        self.vsnode.inplugs['Input Vertex'].setValue(vtn.outplugs['Result'])
+        vtn.inplugs['Vector'].setValue(ivn.outplugs['Attribute'])
+        vtn.inplugs['Matrix'].setValue(mn.outplugs['Matrix'])
+    
+        # fragment shader
+        self.fsnode = FragmentShaderNode()
+        self.fsnode.can_delete = False
+        self.fsnode.location = [200, 200]
+        
+        self.nodes.extend([self.vsnode, ivn, vtn, mn, self.fsnode])
+        
         Plug.count = 1
+        
+        self.in_error = False
         self.requires_compilation = True
         
     def updateVariableCount( self ):
@@ -467,8 +553,10 @@ class FragmentShaderGraph:
             for plug in node.outplugs.values():
                 Plug.count += 1
         
+# TEST
 if __name__ == '__main__':
-    g = FragmentShaderGraph()
+    g = ShaderGraph()
+    
     vtc = Vec4ToColorNode()
     fn = UniformRandomFloatNode()
     fc = FragCoordNode()
@@ -476,16 +564,27 @@ if __name__ == '__main__':
     
     g.nodes.extend([vtc,fn,fc,dv])
     
-    g.nodes[0].inplugs['Color'].setValue(vtc.outplugs['Color'])
+    # vertex shader
+    code = ""
+    globalcode = ""
+    g.prepare()
+    code, globalcode = g.getVertexShaderNode().generateCode('Vertex Position', code, globalcode)
+    print('===============')
+    print(globalcode)
+    print('---------------')
+    print(code)
+    
+    # fragment shader
+    code = ""
+    globalcode = ""
+    g.prepare()
+    g.getFragmentShaderNode().inplugs['Color'].setValue(vtc.outplugs['Color'])
     vtc.inplugs['R'].setValue(fn.outplugs['Uniform'])
     vtc.inplugs['G'].setValue(fc.outplugs['X'])
     vtc.inplugs['B'].setValue(dv.outplugs['Result'])
     vtc.inplugs['A'].setValue(dv.outplugs['Result'])
     
-    code = ""
-    globalcode = ""
-    g.prepare()
-    code, globalcode = g.nodes[0].generateCode('Pixel Color', code, globalcode)
+    code, globalcode = g.getFragmentShaderNode().generateCode('Pixel Color', code, globalcode)
     print('===============')
     print(globalcode)
     print('---------------')
