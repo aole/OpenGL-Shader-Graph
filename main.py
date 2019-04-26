@@ -509,11 +509,12 @@ class GraphWindow( wx.Panel ):
                     gc.SetPen(self.BLACK_PEN)
                     gc.DrawText(name, locx+2 + (txtwidth+11-w), y)
                     
-                    if plug==self.selected_plug or plug==self.selected_plug2:
-                        gc.SetPen(self.RED_PEN)
-                        
-                    gc.DrawEllipse(locx+2+txtwidth+6+10-PLUG_CIRCLE_RADIUS, y+h/2-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
-                    self.pluglocation[plug] = (locx+2+txtwidth+6+10, y+h/2)
+                    if not plug.internal:
+                        if plug==self.selected_plug or plug==self.selected_plug2:
+                            gc.SetPen(self.RED_PEN)
+                            
+                        gc.DrawEllipse(locx+2+txtwidth+6+10-PLUG_CIRCLE_RADIUS, y+h/2-PLUG_CIRCLE_RADIUS, PLUG_CIRCLE_SIZE,PLUG_CIRCLE_SIZE)
+                        self.pluglocation[plug] = (locx+2+txtwidth+6+10, y+h/2)
                     y += txtheight
                     
                 # in plugs

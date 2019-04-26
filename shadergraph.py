@@ -86,7 +86,7 @@ class Vec4Value(Value):
         self.vector = vector
         
     def __str__(self):
-        return f'vec3({self.vector[0]}, {self.vector[1]}, {self.vector[2]}, {self.vector[3]})'
+        return f'vec4({self.vector[0]}, {self.vector[1]}, {self.vector[2]}, {self.vector[3]})'
     
 class Mat4Value(Value):
     def __init__(self, mat=(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1)):
@@ -415,16 +415,35 @@ class InputVertexNode(Node):
     def getGlobalCode(self):
         return 'layout(location = 0) in vec3 Vertex;\n';
         
+class VertexColorNode(Node):
+    def __init__(self):
+        super().__init__('Vertex Color')
+        
+        p = Plug('Vertex Color', self, '', 'vertexColor', ColorValue(), False, declare_variable=False)
+        p.editable = False
+        self.addOutPlug( p )
+        
+    def getGlobalCode(self):
+        return 'in vec4 vertexColor;\n';
+        
 class VertexShaderNode(Node):
     def __init__(self):
         super().__init__('Vertex Shader')
         
         self.addInPlug( Plug('Input Vertex', self, 'vec4', 't', Vec4Value(), generate_variable=False) )
-        self.addOutPlug( Plug('Vertex Position', self, '', 'gl_Position', self.inplugs['Input Vertex'], False, False, inParam=False) )
-        
+        self.addInPlug( Plug('Vertex Color', self, 'vec4', 'vertexColor', ColorValue() ) )
+        self.addOutPlug( Plug('Vertex Position', self, '', 'gl_Position', self.inplugs['Input Vertex'], False, False) )
+        '''
+        p = Plug('Vertex Color', self, 'vec4', 'outColor', ColorValue(), False, internal = True)
+        p.editable = False
+        self.addOutPlug( p )
+        '''
     def customCode(self, name):
-        return f'{self.outplugs["Vertex Position"].variable} = {self.inplugs["Input Vertex"].variable}'
+        return f'{self.outplugs["Vertex Position"].variable} = {self.inplugs["Input Vertex"].variable};\n\tvertexColor = {self.inplugs["Vertex Color"].variable}'
 
+    def getGlobalCode(self):
+        return 'out vec4 vertexColor;\n';
+        
 class FragmentShaderNode(Node):
     def __init__(self):
         super().__init__('Fragment Shader')
@@ -503,6 +522,8 @@ class ShaderGraph:
     def prepare(self):
         self.uniforms.clear()
         for node in self.nodes:
+            if not node:
+                continue
             if isinstance(node, UniformNode):
                 self.uniforms[node.name] = node.uniform
             for plug in node.inplugs.values():
@@ -524,21 +545,29 @@ class ShaderGraph:
         ivn.location = [10, 100]
         
         mn = NodeFactory.getNewNode('MVP Matrix')
-        mn.location = [10, 150]
+        if mn:
+            mn.location = [10, 150]
         
         vtn = VectorTransformNode()
         vtn.location = [130, 100]
         
         self.vsnode.inplugs['Input Vertex'].setValue(vtn.outplugs['Result'])
         vtn.inplugs['Vector'].setValue(ivn.outplugs['Attribute'])
-        vtn.inplugs['Matrix'].setValue(mn.outplugs['Matrix'])
+        if mn:
+            vtn.inplugs['Matrix'].setValue(mn.outplugs['Matrix'])
     
         # fragment shader
         self.fsnode = FragmentShaderNode()
         self.fsnode.can_delete = False
-        self.fsnode.location = [200, 200]
+        self.fsnode.location = [200, 220]
         
-        self.nodes.extend([self.vsnode, ivn, vtn, mn, self.fsnode])
+        vcn = VertexColorNode()
+        vcn.can_delete = False
+        vcn.location = [80, 220]
+        
+        self.fsnode.inplugs['Color'].setValue(vcn.outplugs['Vertex Color'])
+        
+        self.nodes.extend([self.vsnode, ivn, vtn, mn, self.fsnode, vcn])
         
         Plug.count = 1
         
@@ -578,7 +607,7 @@ if __name__ == '__main__':
     code = ""
     globalcode = ""
     g.prepare()
-    g.getFragmentShaderNode().inplugs['Color'].setValue(vtc.outplugs['Color'])
+    #g.getFragmentShaderNode().inplugs['Color'].setValue(vtc.outplugs['Color'])
     vtc.inplugs['R'].setValue(fn.outplugs['Uniform'])
     vtc.inplugs['G'].setValue(fc.outplugs['X'])
     vtc.inplugs['B'].setValue(dv.outplugs['Result'])
