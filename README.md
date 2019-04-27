@@ -1,8 +1,8 @@
 # OpenGL Shader Graph
 
-![Screenshot](screenshot.gif?raw=true)
-
 ![Screenshot](screenshot2.gif?raw=true)
+
+![Screenshot](screenshot.gif?raw=true)
 
 **Examples:**
 

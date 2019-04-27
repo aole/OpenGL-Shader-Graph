@@ -28,6 +28,8 @@ REALTIME = True
 RENDER_BACKGROUND = True
 RENDER_FOREGROUND = True
 
+File3D = 'cube2.obj'
+
 __author__ = 'Bhupendra Aole'
 __version__ = '0.1.0'
 
@@ -188,7 +190,9 @@ class GLFrame( glcanvas.GLCanvas ):
         glClearColor(1, 1, 1, 1)
 
         # setup transparency
-        glDisable(GL_CULL_FACE)
+        #glDisable(GL_CULL_FACE)
+        glEnable(GL_CULL_FACE)
+        #glEnable(GL_DEPTH_TEST)
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         
@@ -198,8 +202,8 @@ class GLFrame( glcanvas.GLCanvas ):
         
         self.compileBGShaders()
         
-        cube = Obj3D( 'cube.obj' )
-        fgdata = cube.getVerticesFlat()
+        cube = Obj3D( File3D )
+        fgdata = cube.getVerticesAndNormalsFlat()
         self.fgvbo = vbo.VBO( np.array( fgdata, 'f' ) )
         
         self.compileFGShaders()
@@ -325,8 +329,10 @@ class GLFrame( glcanvas.GLCanvas ):
             shaders.glUseProgram( self.fgshader )
             
             self.fgvbo.bind()
-            glEnableClientState( GL_VERTEX_ARRAY );
-            glVertexPointerf( self.fgvbo )
+            glEnableVertexAttribArray( 0 )
+            glEnableVertexAttribArray( 1 )
+            glVertexAttribPointer( 0, 3, GL_FLOAT, GL_FALSE, 24, self.fgvbo )
+            glVertexAttribPointer( 1, 3, GL_FLOAT, GL_FALSE, 24, self.fgvbo+12 )
             
             for uname, ucount, ufuncs in self.graph.uniforms.values():
                 UNIFORM_FUNCTION[ucount]( glGetUniformLocation(self.fgshader, uname), *ufuncs() )
@@ -340,7 +346,8 @@ class GLFrame( glcanvas.GLCanvas ):
             glDrawArrays( GL_TRIANGLES, 0, len( self.fgvbo ) )
             
             self.fgvbo.unbind()
-            glDisableClientState( GL_VERTEX_ARRAY );
+            glDisableVertexAttribArray( 0 )
+            glDisableVertexAttribArray( 1 )
         
         shaders.glUseProgram( 0 )
         

@@ -22,7 +22,7 @@ class Obj3D:
                     self.vertices.append( vec )
                 
                 # normals
-                if line[:2]=='vn ':
+                if line[:3]=='vn ':
                     vec=[float(x) for x in line[3:].split()]
                     self.normals.append( vec )
                 
@@ -45,15 +45,28 @@ class Obj3D:
                 v.append( self.vertices[f[i][0]] )
         return v
         
+    def getVerticesAndNormalsFlat( self ):
+        v = []
+        for f in self.faces:
+            for i in range( 3 ):
+                v.append( self.vertices[f[i][0]] + self.normals[f[i][1]] )
+        return v
+        
 if __name__ == '__main__':
-    obj = Obj3D( 'testdata\cube.obj' )
+    obj = Obj3D( 'cube2.obj' )
 
     print( 'Vertices:' )
     for v in range( len( obj.vertices ) ):
         print( v, obj.vertices[v] )
+
+    print( 'Normals:' )
+    for v in range( len( obj.normals ) ):
+        print( v, obj.normals[v] )
 
     print( '\nFaces:' )
     for f in range( len( obj.faces ) ):
         print( str( f+1 ), obj.faces[f] )
         
     print( obj.getVerticesFlat() )
+    print( obj.getVerticesAndNormalsFlat() )
+    

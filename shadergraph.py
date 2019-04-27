@@ -415,6 +415,17 @@ class InputVertexNode(Node):
     def getGlobalCode(self):
         return 'layout(location = 0) in vec3 Vertex;\n';
         
+class InputNormalNode(Node):
+    def __init__(self):
+        super().__init__('Input Normal')
+        
+        self.plug = Plug('Attribute', self, 'vec4', 'vec4(Normal,1)', 'Normal', inParam=False, generate_variable=False, declare_variable=False)
+        self.addOutPlug(self.plug)
+        self.plug.editable = False
+
+    def getGlobalCode(self):
+        return 'layout(location = 1) in vec3 Normal;\n';
+        
 class VertexColorNode(Node):
     def __init__(self):
         super().__init__('Vertex Color')
@@ -551,6 +562,9 @@ class ShaderGraph:
         vtn = VectorTransformNode()
         vtn.location = [130, 100]
         
+        inn = InputNormalNode()
+        inn.location = [130, 190]
+        
         self.vsnode.inplugs['Input Vertex'].setValue(vtn.outplugs['Result'])
         vtn.inplugs['Vector'].setValue(ivn.outplugs['Attribute'])
         if mn:
@@ -559,15 +573,15 @@ class ShaderGraph:
         # fragment shader
         self.fsnode = FragmentShaderNode()
         self.fsnode.can_delete = False
-        self.fsnode.location = [200, 220]
+        self.fsnode.location = [200, 250]
         
         vcn = VertexColorNode()
         vcn.can_delete = False
-        vcn.location = [80, 220]
+        vcn.location = [80, 250]
         
         self.fsnode.inplugs['Color'].setValue(vcn.outplugs['Vertex Color'])
         
-        self.nodes.extend([self.vsnode, ivn, vtn, mn, self.fsnode, vcn])
+        self.nodes.extend([self.vsnode, ivn, vtn, mn, inn, self.fsnode, vcn])
         
         Plug.count = 1
         
