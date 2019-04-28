@@ -24,13 +24,16 @@ class Plug:
         self.display = display
         
     def __str__(self):
+        return f'{self.variable}'
+        
+    def setValue(self, value):
+        self.value = value
+        
+    def getDecleration(self):
         if isinstance(self.value, Plug):
             return f'{self.type} {self.variable} = {self.value.variable}'
         else:
             return f'{self.type} {self.variable} = {self.value}'
-        
-    def setValue(self, value):
-        self.value = value
         
     def setDefaultValue(self):
         self.value = self.defaultValue
@@ -125,6 +128,7 @@ class Node:
         self.active = True
         self.location = [0,0]
         self.can_delete = True
+        self.global_declared = False
         
     def addInPlug(self, plug):
         plug.inParam = True
@@ -153,8 +157,9 @@ class Node:
         
     def generateCode(self, name, code, globalcode):
         gc = self.getGlobalCode()
-        if gc:
+        if gc and not self.global_declared:
             globalcode += gc
+            self.global_declared = True
             
         for plugname, plug in self.inplugs.items():
             if isinstance(plug.value, Plug) and plug.value.parent!=self:
@@ -170,14 +175,14 @@ class Node:
                         globalcode = gc
                         plug.value.declared = True
             if plug.declare_variable:
-                out = f'\t{plug};\n'
+                out = f'\t{plug.getDecleration()};\n'
                 code += out
         code += '\t'+self.customCode(name).strip()+';\n'
         
         return code, globalcode
         
     def customCode(self, name):
-        return f'{self.outplugs[name]}'
+        return f'{self.outplugs[name].getDecleration()}'
         
 class UniformNode(Node):
     varcount = 1
@@ -322,19 +327,19 @@ class FunctionINode(Node):
     def __init__(self):
         super().__init__('Function (I)')
         
-        funcIPlug = Plug('Function', self, 'float', 'f', ListValue('sin'), declare_variable=False, internal = True)
+        self.varTypePlug = Plug('Type', self, 'float', 't', ListValue('float'), declare_variable=False, internal = True)
+        funcIPlug = Plug('Function', self, f'{self.varTypePlug.value}', 'f', ListValue('sin'), declare_variable=False, internal = True)
         funcIPlug.setList(('abs','acos','acosh','asin','asinh','atan','atanh','ceil','cos','cosh','degrees','exp','exp2','floor','length','log','log2','noise1','noise2','noise3','noise4','normalize','not','radians','round','roundEven','sign','sin','sinh','sqrt','tan','tanh','trunc'))
         self.addInPlug( funcIPlug )
         
-        varTypePlug = Plug('Type', self, 'float', 't', ListValue('float'), declare_variable=False, internal = True)
-        varTypePlug.setList(('float','vec2','vec3','vec4'))
-        self.addInPlug( varTypePlug )
+        self.varTypePlug.setList(('float','vec2','vec3','vec4'))
+        self.addInPlug( self.varTypePlug )
         
-        self.addInPlug( Plug('Param', self, 'float', 'p', FloatValue()) )
-        self.addOutPlug( Plug('Result', self, 'float', 'r', FloatValue()) )
+        self.addInPlug( Plug('Param', self, f'{self.inplugs["Type"].value}', 'p', FloatValue(), declare_variable=False) )
+        self.addOutPlug( Plug('Result', self, f'{self.inplugs["Type"].value.value}', 'r', FloatValue()) )
         
     def customCode(self, name):
-        return f'{self.inplugs["Type"].value} {self.outplugs["Result"].variable} = {self.inplugs["Function"].value}({self.inplugs["Param"].variable})'
+        return f'{self.inplugs["Type"].value} {self.outplugs["Result"].variable} = {self.inplugs["Function"].value}({self.inplugs["Param"].value})'
 
 class FunctionIINode(Node):
     def __init__(self):
@@ -404,27 +409,20 @@ class FragCoordNode(Node):
         self.addOutPlug(Plug('Y', self, 'float', 'gl_FragCoord.y', FloatValue(), generate_variable=False, declare_variable=False))
         self.addOutPlug(Plug('Z', self, 'float', 'gl_FragCoord.z', FloatValue(), declare_variable=False))
         
-class InputVertexNode(Node):
+class InputMeshNode(Node):
     def __init__(self):
-        super().__init__('Input Vertex')
+        super().__init__('Input Mesh')
         
-        self.plug = Plug('Attribute', self, 'vec4', 'vec4(Vertex,1)', 'Vertex', inParam=False, generate_variable=False, declare_variable=False)
-        self.addOutPlug(self.plug)
-        self.plug.editable = False
+        plug = Plug('Position', self, 'vec4', 'vec4(Vertex,1)', 'Vertex', generate_variable=False, declare_variable=False)
+        plug.editable = False
+        self.addOutPlug(plug)
+
+        plug = Plug('Normal', self, 'vec4', 'vec4(Normal,1)', 'Normal', generate_variable=False, declare_variable=False)
+        plug.editable = False
+        self.addOutPlug(plug)
 
     def getGlobalCode(self):
-        return 'layout(location = 0) in vec3 Vertex;\n';
-        
-class InputNormalNode(Node):
-    def __init__(self):
-        super().__init__('Input Normal')
-        
-        self.plug = Plug('Attribute', self, 'vec4', 'vec4(Normal,1)', 'Normal', inParam=False, generate_variable=False, declare_variable=False)
-        self.addOutPlug(self.plug)
-        self.plug.editable = False
-
-    def getGlobalCode(self):
-        return 'layout(location = 1) in vec3 Normal;\n';
+        return 'layout(location = 0) in vec3 Vertex;\nlayout(location = 1) in vec3 Normal;\n';
         
 class VertexColorNode(Node):
     def __init__(self):
@@ -441,16 +439,12 @@ class VertexShaderNode(Node):
     def __init__(self):
         super().__init__('Vertex Shader')
         
-        self.addInPlug( Plug('Input Vertex', self, 'vec4', 't', Vec4Value(), generate_variable=False) )
-        self.addInPlug( Plug('Vertex Color', self, 'vec4', 'vertexColor', ColorValue() ) )
-        self.addOutPlug( Plug('Vertex Position', self, '', 'gl_Position', self.inplugs['Input Vertex'], False, False) )
-        '''
-        p = Plug('Vertex Color', self, 'vec4', 'outColor', ColorValue(), False, internal = True)
-        p.editable = False
-        self.addOutPlug( p )
-        '''
+        self.addInPlug( Plug('Position', self, 'vec4', 't', Vec4Value(), generate_variable=False) )
+        self.addInPlug( Plug('Color', self, 'vec4', 'vertexColor', ColorValue() ) )
+        self.addOutPlug( Plug('Position', self, '', 'gl_Position', self.inplugs['Position'], False, False) )
+
     def customCode(self, name):
-        return f'{self.outplugs["Vertex Position"].variable} = {self.inplugs["Input Vertex"].variable};\n\tvertexColor = {self.inplugs["Vertex Color"].variable}'
+        return f'{self.outplugs["Position"].variable} = {self.inplugs["Position"].variable};\n\tvertexColor = {self.inplugs["Color"].variable}'
 
     def getGlobalCode(self):
         return 'out vec4 vertexColor;\n';
@@ -535,6 +529,7 @@ class ShaderGraph:
         for node in self.nodes:
             if not node:
                 continue
+            node.global_declared = False
             if isinstance(node, UniformNode):
                 self.uniforms[node.name] = node.uniform
             for plug in node.inplugs.values():
@@ -545,45 +540,48 @@ class ShaderGraph:
     def new( self ):
         self.uniforms.clear()
         self.nodes.clear()
+        Plug.count = 1
         
         # vertex shader
         self.vsnode = VertexShaderNode()
         self.vsnode.can_delete = False
-        self.vsnode.location = [280, 100]
+        self.vsnode.location = [280, 80]
         
-        ivn = InputVertexNode()
+        ivn = InputMeshNode()
         ivn.can_delete = False
-        ivn.location = [10, 100]
+        ivn.location = [10, 60]
         
         mn = NodeFactory.getNewNode('MVP Matrix')
         if mn:
             mn.location = [10, 150]
         
         vtn = VectorTransformNode()
-        vtn.location = [130, 100]
+        vtn.location = [130, 80]
         
-        inn = InputNormalNode()
-        inn.location = [130, 190]
+        fn = FunctionINode()
+        fn.inplugs['Function'].value.SetValue('abs')
+        fn.inplugs['Type'].value.SetValue('vec4')
+        fn.location = [160, 180]
         
-        self.vsnode.inplugs['Input Vertex'].setValue(vtn.outplugs['Result'])
-        vtn.inplugs['Vector'].setValue(ivn.outplugs['Attribute'])
+        self.vsnode.inplugs['Position'].setValue(vtn.outplugs['Result'])
+        fn.inplugs['Param'].setValue(ivn.outplugs['Normal'])
+        self.vsnode.inplugs['Color'].setValue(fn.outplugs['Result'])
+        vtn.inplugs['Vector'].setValue(ivn.outplugs['Position'])
         if mn:
             vtn.inplugs['Matrix'].setValue(mn.outplugs['Matrix'])
     
         # fragment shader
         self.fsnode = FragmentShaderNode()
         self.fsnode.can_delete = False
-        self.fsnode.location = [200, 250]
+        self.fsnode.location = [200, 300]
         
         vcn = VertexColorNode()
         vcn.can_delete = False
-        vcn.location = [80, 250]
+        vcn.location = [80, 300]
         
         self.fsnode.inplugs['Color'].setValue(vcn.outplugs['Vertex Color'])
         
-        self.nodes.extend([self.vsnode, ivn, vtn, mn, inn, self.fsnode, vcn])
-        
-        Plug.count = 1
+        self.nodes.extend([self.vsnode, ivn, vtn, fn, mn, self.fsnode, vcn])
         
         self.in_error = False
         self.requires_compilation = True

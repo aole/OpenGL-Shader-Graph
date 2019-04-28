@@ -703,8 +703,9 @@ class GraphWindow( wx.Panel ):
         plug = self.listbox.plug
         if plug:
             value = plug.getList()[currentItem]
-            plug.value.SetValue(value)
-            self.graph.requires_compilation = True
+            if value != plug.value.GetValue():
+                plug.value.SetValue(value)
+                self.graph.requires_compilation = True
         
     def triggerPlugInput( self, plug ):
         if not plug.editable:
